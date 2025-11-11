@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>POC - Apple Pay via Tuna</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #000000 0%, #1a1a1a 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+
+        .info-box {
+            background: #f5f5f5;
+            border-left: 4px solid #000000;
+            padding: 15px;
+            margin-bottom: 30px;
+            border-radius: 4px;
+        }
+
+        .info-box p {
+            color: #555;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .info-box code {
+            background: #e0e0e0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+
+        #applePayButtonContainer {
+            margin: 30px 0;
+            min-height: 50px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            display: none;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+            display: block;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            display: block;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+            display: block;
+        }
+
+        .console-log {
+            margin-top: 20px;
+            padding: 15px;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .console-log .log-entry {
+            margin-bottom: 8px;
+            padding: 5px;
+            border-left: 3px solid transparent;
+        }
+
+        .console-log .log-entry.success {
+            border-left-color: #4caf50;
+        }
+
+        .console-log .log-entry.error {
+            border-left-color: #f44336;
+        }
+
+        .console-log .log-entry.info {
+            border-left-color: #2196f3;
+        }
+
+        .loading {
+            text-align: center;
+            color: #666;
+            margin: 20px 0;
+        }
+
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #000000;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        input, select {
+            width: 100%;
+            padding: 10px;
+            margin-top: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+
+        button {
+            margin-top: 15px;
+            padding: 12px 24px;
+            background: #000000;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            width: 100%;
+        }
+
+        button:hover {
+            background: #333;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 15px;
+        }
+
+        label strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍎 POC Apple Pay via Tuna</h1>
+        <p class="subtitle">Prova de Conceito - Integração Tuna + Apple Pay</p>
+
+        <div class="info-box">
+            <p><strong>⚠️ Nota:</strong> Esta é uma POC para teste visual. Configure a URL da API e o Restaurant ID abaixo.</p>
+            <p style="margin-top: 10px;"><strong>ℹ️ Importante:</strong> Apple Pay está disponível apenas em dispositivos Apple (Safari no macOS/iOS) e requer configuração específica.</p>
+        </div>
+
+        <div style="background: #f5f5f5; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <label>
+                <strong>API URL:</strong>
+                <input type="text" id="apiUrl" value="http://multipedidos.beta">
+            </label>
+            <label>
+                <strong>Restaurant ID:</strong>
+                <input type="number" id="restaurantId" value="1">
+            </label>
+            <label>
+                <strong>Ambiente Tuna:</strong>
+                <select id="tunaEnvironment">
+                    <option value="production">Produção</option>
+                    <option value="sandbox">Sandbox</option>
+                    <option value="auto">Automático (sem parâmetro)</option>
+                </select>
+            </label>
+            <button onclick="initTuna()">🚀 Carregar Apple Pay</button>
+        </div>
+
+        <div id="applePayButtonContainer">
+            <div class="loading">
+                <p>Configure os dados acima e clique em "Carregar Apple Pay"</p>
+            </div>
+        </div>
+
+        <div id="status" class="status"></div>
+
+        <div class="console-log" id="consoleLog">
+            <div class="log-entry info">Console de logs aparecerá aqui...</div>
+        </div>
+    </div>
+
+    <!-- Tuna SDK v2 - Versão mais atualizada -->
+    <script src="https://storage.googleapis.com/tuna-statics/tuna-v2.js"></script>
+    <!-- CSS opcional da Tuna -->
+    <link rel="stylesheet" href="https://js.tuna.uy/css/components.css">
+
+    <script>
+        // Função auxiliar para logar no console e na UI
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry ${type}`;
+            logEntry.textContent = `[${timestamp}] ${message}`;
+            
+            const consoleLog = document.getElementById('consoleLog');
+            consoleLog.insertBefore(logEntry, consoleLog.firstChild);
+            
+            // Manter apenas os últimos 10 logs
+            while (consoleLog.children.length > 10) {
+                consoleLog.removeChild(consoleLog.lastChild);
+            }
+
+            // Log também no console do navegador
+            if (type === 'error') {
+                console.error(message);
+            } else if (type === 'success') {
+                console.log('✅', message);
+            } else {
+                console.log('ℹ️', message);
+            }
+        }
+
+        // Função para atualizar status
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.textContent = message;
+        }
+
+        // Configurações do Apple Pay
+        const APPLE_PAY_CONFIG = {
+            merchantId: 'BCR2DN6TR7QYLIKK',
+            merchantName: 'Teste POC Tuna',
+            countryCode: 'BR',
+            currencyCode: 'BRL'
+        };
+
+        // Função para obter sessionId da API
+        async function getSessionId(apiUrl, restaurantId) {
+            try {
+                log(`Fazendo requisição para: ${apiUrl}/restaurant/tuna/session`, 'info');
+                log(`Restaurant ID: ${restaurantId}`, 'info');
+                
+                const response = await fetch(`${apiUrl}/restaurant/tuna/session`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        restaurantId: parseInt(restaurantId)
+                    })
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Erro HTTP ${response.status}: ${errorText || response.statusText}`);
+                }
+
+                const data = await response.json();
+                log('Resposta da API recebida: ' + JSON.stringify(data), 'success');
+                
+                if (data.sessionId) {
+                    log(`✅ SessionId obtido: ${data.sessionId}`, 'success');
+                    return data.sessionId;
+                } else {
+                    throw new Error('SessionId não encontrado na resposta da API');
+                }
+            } catch (error) {
+                log(`❌ Erro ao obter sessionId: ${error.message}`, 'error');
+                throw error;
+            }
+        }
+
+        // Verificar se Apple Pay está disponível
+        function checkApplePayAvailability() {
+            if (typeof ApplePaySession === 'undefined') {
+                return {
+                    available: false,
+                    reason: 'ApplePaySession não está disponível. Apple Pay só funciona em dispositivos Apple (Safari no macOS/iOS).'
+                };
+            }
+
+            if (!ApplePaySession.canMakePayments()) {
+                return {
+                    available: false,
+                    reason: 'Apple Pay não está configurado neste dispositivo ou não há cartões cadastrados.'
+                };
+            }
+
+            return {
+                available: true,
+                reason: 'Apple Pay está disponível!'
+            };
+        }
+
+        // Aguardar o SDK da Tuna carregar
+        async function initTuna() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const restaurantId = document.getElementById('restaurantId').value.trim();
+            const tunaEnvironment = document.getElementById('tunaEnvironment').value;
+            
+            if (!apiUrl || !restaurantId) {
+                updateStatus('❌ Por favor, preencha a URL da API e o Restaurant ID', 'error');
+                return;
+            }
+
+            // Limpar logs anteriores
+            document.getElementById('consoleLog').innerHTML = '';
+            updateStatus('', '');
+            
+            const container = document.getElementById('applePayButtonContainer');
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Obtendo sessionId da API...</p></div>';
+            
+            log('Iniciando processo de carregamento do Apple Pay...', 'info');
+            
+            try {
+                // Verificar disponibilidade do Apple Pay
+                log('Verificando disponibilidade do Apple Pay...', 'info');
+                const applePayCheck = checkApplePayAvailability();
+                
+                if (!applePayCheck.available) {
+                    log('⚠️ ' + applePayCheck.reason, 'error');
+                    updateStatus('⚠️ ' + applePayCheck.reason, 'error');
+                    container.innerHTML = `<p style="color: orange; text-align: center; padding: 20px;">${applePayCheck.reason}</p>`;
+                    return;
+                }
+                
+                log('✅ ' + applePayCheck.reason, 'success');
+                
+                // Obter sessionId da API
+                const SESSION_ID = await getSessionId(apiUrl, restaurantId);
+                
+                // Verificar se Tuna SDK está disponível
+                log('Verificando se Tuna SDK está disponível...', 'info');
+                
+                if (typeof Tuna === 'undefined') {
+                    throw new Error('Tuna SDK não foi carregado. Verifique se o script foi carregado corretamente.');
+                }
+
+                log('Tuna SDK carregado com sucesso!', 'success');
+                log(`Inicializando Tuna com sessionId real: ${SESSION_ID}`, 'info');
+
+                // Tentar diferentes formas de inicialização baseado no ambiente selecionado
+                let tuna;
+                
+                if (tunaEnvironment === 'auto') {
+                    // Tentar primeiro sem parâmetro de ambiente (o sessionId pode indicar o ambiente)
+                    try {
+                        tuna = Tuna(SESSION_ID);
+                        log('Tuna inicializado com: Tuna(sessionId) - ambiente automático', 'success');
+                    } catch (e1) {
+                        log('Tentativa automática falhou, tentando com production...', 'info');
+                        try {
+                            tuna = Tuna(SESSION_ID, 'production');
+                            log('Tuna inicializado com: Tuna(sessionId, "production")', 'success');
+                        } catch (e2) {
+                            log('Tentativa com production falhou, tentando com sandbox...', 'info');
+                            try {
+                                tuna = Tuna(SESSION_ID, 'sandbox');
+                                log('Tuna inicializado com: Tuna(sessionId, "sandbox")', 'success');
+                            } catch (e3) {
+                                log('Todas as formas de inicialização falharam', 'error');
+                                throw e3;
+                            }
+                        }
+                    }
+                } else {
+                    // Usar o ambiente especificado pelo usuário
+                    try {
+                        tuna = Tuna(SESSION_ID, tunaEnvironment);
+                        log(`Tuna inicializado com: Tuna(sessionId, "${tunaEnvironment}")`, 'success');
+                    } catch (e1) {
+                        log(`Tentativa com ${tunaEnvironment} falhou, tentando sem parâmetro...`, 'info');
+                        try {
+                            tuna = Tuna(SESSION_ID);
+                            log('Tuna inicializado com: Tuna(sessionId) - sem ambiente', 'success');
+                        } catch (e2) {
+                            log('Todas as formas de inicialização falharam', 'error');
+                            throw e2;
+                        }
+                    }
+                }
+                
+                // Debug: inspecionar objeto tuna
+                log('Tipo do objeto tuna: ' + typeof tuna, 'info');
+                log('Métodos disponíveis: ' + Object.keys(tuna).join(', '), 'info');
+                log('useApplePay existe? ' + (typeof tuna.useApplePay === 'function' ? 'SIM' : 'NÃO'), 'info');
+                
+                // Listar todos os métodos disponíveis
+                const allMethods = Object.getOwnPropertyNames(tuna).filter(prop => typeof tuna[prop] === 'function');
+                if (allMethods.length > 0) {
+                    log('Métodos encontrados: ' + allMethods.join(', '), 'info');
+                }
+
+                // Configurar Apple Pay
+                log('Configurando Apple Pay (v2)...', 'info');
+                
+                // Verificar se pode usar Apple Pay primeiro (método novo na v2)
+                if (typeof tuna.canUseApplePay === 'function') {
+                    log('Verificando disponibilidade com canUseApplePay (v2)...', 'info');
+                    try {
+                        const canUse = await tuna.canUseApplePay(APPLE_PAY_CONFIG.merchantId);
+                        log('canUseApplePay retornou: ' + canUse, canUse ? 'success' : 'error');
+                        if (!canUse) {
+                            log('⚠️ Apple Pay não está disponível neste dispositivo', 'error');
+                            updateStatus('⚠️ Apple Pay não está disponível neste dispositivo', 'error');
+                            container.innerHTML = '<p style="color: orange; text-align: center; padding: 20px;">Apple Pay não está disponível neste dispositivo</p>';
+                            return;
+                        }
+                    } catch (checkError) {
+                        log('Erro ao verificar canUseApplePay: ' + checkError.message, 'error');
+                    }
+                }
+                
+                // Configuração do Apple Pay conforme código fonte v2
+                // useApplePay recebe: { buttom, applePayCallback, cart, merchantId, displayName, embeddedMode?, embedderOrigin? }
+                const applePaySettings = {
+                    buttom: {  // Nota: no código fonte está "buttom" (não "button")
+                        selector: '#applePayButtonContainer'
+                    },
+                    cart: {
+                        lineItems: [
+                            {
+                                label: 'Produto de Teste',
+                                amount: 1.00
+                            }
+                        ],
+                        total: {
+                            label: 'Total',
+                            amount: 1.00
+                        }
+                    },
+                    merchantId: APPLE_PAY_CONFIG.merchantId,
+                    displayName: APPLE_PAY_CONFIG.merchantName,
+                    applePayCallback: function(applePayPayload) {
+                        log('✅ Pagamento processado com sucesso!', 'success');
+                        log('Dados do Apple Pay: ' + JSON.stringify(applePayPayload, null, 2), 'success');
+                        updateStatus('✅ Pagamento processado! Verifique o console para detalhes.', 'success');
+                        return Promise.resolve();
+                    }
+                    // embeddedMode e embedderOrigin são opcionais
+                };
+                
+                log('Configuração do Apple Pay (v2): ' + JSON.stringify(applePaySettings, null, 2), 'info');
+
+                // Renderizar botão do Apple Pay
+                if (typeof tuna.useApplePay === 'function') {
+                    log('Método useApplePay encontrado (v2)! Renderizando botão...', 'success');
+                    
+                    try {
+                        // useApplePay retorna uma Promise que resolve para true/false
+                        tuna.useApplePay(applePaySettings)
+                            .then(function(isApplePayReady) {
+                                if (isApplePayReady) {
+                                    log('✅ Apple Pay está pronto!', 'success');
+                                    updateStatus('✅ Botão Apple Pay carregado. Clique para testar!', 'success');
+                                    
+                                    // Remover loading
+                                    const loadingDiv = document.querySelector('.loading');
+                                    if (loadingDiv) {
+                                        loadingDiv.style.display = 'none';
+                                    }
+                                } else {
+                                    log('⚠️ Apple Pay não está disponível', 'error');
+                                    updateStatus('⚠️ Apple Pay não está disponível neste dispositivo', 'error');
+                                }
+                            })
+                            .catch(function(error) {
+                                log('❌ Erro ao inicializar Apple Pay: ' + error.message, 'error');
+                                updateStatus('❌ Erro: ' + error.message, 'error');
+                                console.error('Erro completo:', error);
+                            });
+                    } catch (apiError) {
+                        log('❌ Erro ao chamar useApplePay: ' + apiError.message, 'error');
+                        updateStatus('❌ Erro: ' + apiError.message, 'error');
+                        throw apiError;
+                    }
+                } else {
+                    const errorMsg = 'Método useApplePay não encontrado no objeto tuna. Verifique o console para ver os métodos disponíveis.';
+                    log(errorMsg, 'error');
+                    log('Objeto tuna completo: ' + JSON.stringify(tuna, null, 2), 'error');
+                    updateStatus('❌ ' + errorMsg, 'error');
+                    throw new Error(errorMsg);
+                }
+
+            } catch (error) {
+                log(`❌ Erro geral: ${error.message}`, 'error');
+                updateStatus(`❌ Erro: ${error.message}`, 'error');
+                container.innerHTML = `<p style="color: red;">Erro: ${error.message}</p>`;
+                console.error('Erro completo:', error);
+            }
+        }
+    </script>
+</body>
+</html>
+
