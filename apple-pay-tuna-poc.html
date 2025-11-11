@@ -523,18 +523,30 @@
                                             log('Conteúdo do container: ' + containerElement.innerHTML.substring(0, 200), 'info');
                                             log('Elementos filhos: ' + containerElement.children.length, 'info');
                                             
-                                            // Verificar se há botão Apple Pay
-                                            const applePayButton = containerElement.querySelector('button[class*="apple"], button[class*="Apple"], [id*="apple"], [id*="Apple"]');
+                                            // Verificar se há elemento apple-pay-button (web component)
+                                            const applePayButton = containerElement.querySelector('apple-pay-button');
                                             const allButtons = containerElement.querySelectorAll('button');
-                                            log('Botões encontrados no container: ' + allButtons.length, 'info');
+                                            log('Botões <button> encontrados: ' + allButtons.length, 'info');
+                                            log('Elementos <apple-pay-button> encontrados: ' + (applePayButton ? '1' : '0'), 'info');
                                             
-                                            if (allButtons.length > 0) {
-                                                log('✅ Botão encontrado!', 'success');
-                                                allButtons.forEach((btn, idx) => {
-                                                    log(`Botão ${idx + 1}: ${btn.outerHTML.substring(0, 100)}`, 'info');
-                                                });
+                                            if (applePayButton) {
+                                                log('✅ Botão Apple Pay encontrado!', 'success');
+                                                log('HTML do botão: ' + applePayButton.outerHTML, 'info');
+                                                
+                                                // Verificar estilos do botão
+                                                const buttonStyle = window.getComputedStyle(applePayButton);
+                                                log('Botão display: ' + buttonStyle.display, 'info');
+                                                log('Botão visibility: ' + buttonStyle.visibility, 'info');
+                                                log('Botão width: ' + buttonStyle.width, 'info');
+                                                log('Botão height: ' + buttonStyle.height, 'info');
+                                                
+                                                // Garantir que o botão está visível
+                                                applePayButton.style.display = 'inline-block';
+                                                applePayButton.style.visibility = 'visible';
+                                                
+                                                log('✅ Botão Apple Pay está visível!', 'success');
                                             } else {
-                                                log('⚠️ Nenhum botão encontrado no container', 'error');
+                                                log('⚠️ Elemento apple-pay-button não encontrado no container', 'error');
                                                 log('HTML completo do container: ' + containerElement.innerHTML, 'info');
                                             }
                                             
