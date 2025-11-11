@@ -216,6 +216,10 @@
                     <option value="auto">Automático (sem parâmetro)</option>
                 </select>
             </label>
+            <label style="margin-top: 10px;">
+                <input type="checkbox" id="useMockSession" style="width: auto; margin-right: 8px;">
+                <strong>Usar Session Mock (temporário)</strong>
+            </label>
             <button onclick="initTuna()">🚀 Carregar Apple Pay</button>
         </div>
 
@@ -336,13 +340,17 @@
             };
         }
 
+        // SessionId mock temporário
+        const MOCK_SESSION_ID = 'sXvHXB2y7DEtt4QBYfbmNLh7TBfBlB5SldrPmTFTrMVCdEGO3yeGl62DcHyRrFDnz89SPXB6HaOuY0xh92BcUmdZ31nsnUv6b0GVyBYENNZ4Y91T';
+
         // Aguardar o SDK da Tuna carregar
         async function initTuna() {
             const apiUrl = document.getElementById('apiUrl').value.trim();
             const restaurantId = document.getElementById('restaurantId').value.trim();
             const tunaEnvironment = document.getElementById('tunaEnvironment').value;
+            const useMockSession = document.getElementById('useMockSession').checked;
             
-            if (!apiUrl || !restaurantId) {
+            if (!useMockSession && (!apiUrl || !restaurantId)) {
                 updateStatus('❌ Por favor, preencha a URL da API e o Restaurant ID', 'error');
                 return;
             }
@@ -352,7 +360,7 @@
             updateStatus('', '');
             
             const container = document.getElementById('applePayButtonContainer');
-            container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Obtendo sessionId da API...</p></div>';
+            container.innerHTML = '<div class="loading"><div class="spinner"></div><p>Obtendo sessionId...</p></div>';
             
             log('Iniciando processo de carregamento do Apple Pay...', 'info');
             
@@ -370,8 +378,16 @@
                 
                 log('✅ ' + applePayCheck.reason, 'success');
                 
-                // Obter sessionId da API
-                const SESSION_ID = await getSessionId(apiUrl, restaurantId);
+                // Obter sessionId da API ou usar mock
+                let SESSION_ID;
+                if (useMockSession) {
+                    log('⚠️ Usando SessionId MOCK (temporário)', 'info');
+                    SESSION_ID = MOCK_SESSION_ID;
+                    log(`SessionId mock: ${SESSION_ID}`, 'info');
+                } else {
+                    log('Buscando sessionId da API...', 'info');
+                    SESSION_ID = await getSessionId(apiUrl, restaurantId);
+                }
                 
                 // Verificar se Tuna SDK está disponível
                 log('Verificando se Tuna SDK está disponível...', 'info');
