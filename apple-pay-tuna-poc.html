@@ -71,6 +71,25 @@
             align-items: center;
         }
 
+        /* Estilos para o web component apple-pay-button */
+        apple-pay-button {
+            display: inline-block !important;
+            visibility: visible !important;
+            min-width: 200px !important;
+            min-height: 40px !important;
+            width: auto !important;
+            height: auto !important;
+            -webkit-appearance: none;
+        }
+
+        /* Garantir que o container não esconde o botão */
+        #applePayButtonContainer apple-pay-button {
+            display: inline-block !important;
+            visibility: visible !important;
+            min-width: 200px !important;
+            min-height: 40px !important;
+        }
+
         .status {
             margin-top: 20px;
             padding: 15px;
@@ -540,11 +559,59 @@
                                                 log('Botão width: ' + buttonStyle.width, 'info');
                                                 log('Botão height: ' + buttonStyle.height, 'info');
                                                 
-                                                // Garantir que o botão está visível
+                                                // Garantir que o botão está visível e tem dimensões
                                                 applePayButton.style.display = 'inline-block';
                                                 applePayButton.style.visibility = 'visible';
+                                                applePayButton.style.minWidth = '200px';
+                                                applePayButton.style.minHeight = '40px';
+                                                applePayButton.style.width = 'auto';
+                                                applePayButton.style.height = 'auto';
+                                                
+                                                // Tentar forçar reflow/repaint
+                                                applePayButton.offsetHeight;
                                                 
                                                 log('✅ Botão Apple Pay está visível!', 'success');
+                                                log('Estilos aplicados ao botão', 'info');
+                                                
+                                                // Verificar novamente após um tempo (web components podem demorar para inicializar)
+                                                setTimeout(() => {
+                                                    const buttonStyle2 = window.getComputedStyle(applePayButton);
+                                                    log('Verificação após 1s - Width: ' + buttonStyle2.width + ', Height: ' + buttonStyle2.height, 'info');
+                                                    
+                                                    if (buttonStyle2.width === '0px' || buttonStyle2.height === '0px') {
+                                                        log('⚠️ Botão ainda sem dimensões. Tentando forçar inicialização...', 'error');
+                                                        
+                                                        // Tentar disparar eventos que podem ajudar na inicialização
+                                                        try {
+                                                            applePayButton.dispatchEvent(new Event('load'));
+                                                            applePayButton.dispatchEvent(new Event('DOMContentLoaded'));
+                                                        } catch (e) {
+                                                            log('Erro ao disparar eventos: ' + e.message, 'info');
+                                                        }
+                                                        
+                                                        // Verificar shadow DOM
+                                                        if (applePayButton.shadowRoot) {
+                                                            log('Shadow DOM encontrado!', 'info');
+                                                            const shadowContent = applePayButton.shadowRoot.innerHTML;
+                                                            log('Conteúdo do shadow DOM: ' + shadowContent.substring(0, 200), 'info');
+                                                        } else {
+                                                            log('Shadow DOM não encontrado (pode ser normal)', 'info');
+                                                        }
+                                                        
+                                                        // Verificar novamente após mais tempo
+                                                        setTimeout(() => {
+                                                            const buttonStyle3 = window.getComputedStyle(applePayButton);
+                                                            log('Verificação após 2s - Width: ' + buttonStyle3.width + ', Height: ' + buttonStyle3.height, 'info');
+                                                            
+                                                            if (buttonStyle3.width === '0px' || buttonStyle3.height === '0px') {
+                                                                log('⚠️ Botão ainda sem dimensões após 2s. Pode ser necessário verificar configuração do Apple Pay.', 'error');
+                                                                updateStatus('⚠️ Botão renderizado mas sem dimensões. Verifique logs no console.', 'error');
+                                                            }
+                                                        }, 1000);
+                                                    } else {
+                                                        log('✅ Botão tem dimensões corretas!', 'success');
+                                                    }
+                                                }, 1000);
                                             } else {
                                                 log('⚠️ Elemento apple-pay-button não encontrado no container', 'error');
                                                 log('HTML completo do container: ' + containerElement.innerHTML, 'info');
