@@ -512,13 +512,53 @@
                             .then(function(isApplePayReady) {
                                 if (isApplePayReady) {
                                     log('✅ Apple Pay está pronto!', 'success');
+                                    
+                                    // Verificar se o botão foi renderizado
+                                    setTimeout(() => {
+                                        const containerElement = document.querySelector('#applePayButtonContainer');
+                                        log('Verificando se botão foi renderizado...', 'info');
+                                        log('Container existe? ' + (containerElement ? 'SIM' : 'NÃO'), 'info');
+                                        
+                                        if (containerElement) {
+                                            log('Conteúdo do container: ' + containerElement.innerHTML.substring(0, 200), 'info');
+                                            log('Elementos filhos: ' + containerElement.children.length, 'info');
+                                            
+                                            // Verificar se há botão Apple Pay
+                                            const applePayButton = containerElement.querySelector('button[class*="apple"], button[class*="Apple"], [id*="apple"], [id*="Apple"]');
+                                            const allButtons = containerElement.querySelectorAll('button');
+                                            log('Botões encontrados no container: ' + allButtons.length, 'info');
+                                            
+                                            if (allButtons.length > 0) {
+                                                log('✅ Botão encontrado!', 'success');
+                                                allButtons.forEach((btn, idx) => {
+                                                    log(`Botão ${idx + 1}: ${btn.outerHTML.substring(0, 100)}`, 'info');
+                                                });
+                                            } else {
+                                                log('⚠️ Nenhum botão encontrado no container', 'error');
+                                                log('HTML completo do container: ' + containerElement.innerHTML, 'info');
+                                            }
+                                            
+                                            // Verificar estilos que podem estar escondendo
+                                            const computedStyle = window.getComputedStyle(containerElement);
+                                            log('Container display: ' + computedStyle.display, 'info');
+                                            log('Container visibility: ' + computedStyle.visibility, 'info');
+                                            log('Container height: ' + computedStyle.height, 'info');
+                                            log('Container width: ' + computedStyle.width, 'info');
+                                        }
+                                    }, 500);
+                                    
                                     updateStatus('✅ Botão Apple Pay carregado. Clique para testar!', 'success');
                                     
-                                    // Remover loading
-                                    const loadingDiv = document.querySelector('.loading');
+                                    // Remover apenas o loading, mas manter o container intacto
+                                    const loadingDiv = container.querySelector('.loading');
                                     if (loadingDiv) {
                                         loadingDiv.style.display = 'none';
                                     }
+                                    
+                                    // Garantir que o container está visível
+                                    container.style.display = 'block';
+                                    container.style.visibility = 'visible';
+                                    container.style.minHeight = '50px';
                                 } else {
                                     log('⚠️ Apple Pay não está disponível', 'error');
                                     updateStatus('⚠️ Apple Pay não está disponível neste dispositivo', 'error');
