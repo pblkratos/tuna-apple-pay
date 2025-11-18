@@ -102,6 +102,7 @@
             min-height: 44px !important;
             height: auto !important;
             -webkit-appearance: none !important;
+            appearance: none !important;
             opacity: 1 !important;
         }
 
@@ -146,6 +147,17 @@
     <div class="container">
         <h1>🍎 Apple Pay - Tuna POC</h1>
 
+        <div class="info-box" style="background: #fff3cd; border-left-color: #ffc107; margin-bottom: 20px;">
+            <p><strong>⚠️ Requisito de Segurança:</strong> Apple Pay requer HTTPS ou localhost.</p>
+            <p style="margin-top: 10px; font-size: 13px;">
+                <strong>Opções:</strong><br>
+                1. Use <code>localhost:8000</code> no celular (via USB + Safari Remote Debugging)<br>
+                2. Use o script <code>./serve-https.sh</code> para HTTPS local<br>
+                3. Configure um túnel HTTPS (ngrok, cloudflare tunnel, etc)
+            </p>
+            <p id="currentUrl" style="margin-top: 10px; font-size: 12px; color: #856404;"></p>
+        </div>
+
         <div class="config-box">
             <label>
                 <strong>API URL:</strong>
@@ -180,6 +192,18 @@
     <script src="https://storage.googleapis.com/tuna-statics/tuna-v2.js"></script>
 
     <script>
+        // Mostrar URL atual
+        window.addEventListener('DOMContentLoaded', function() {
+            const urlInfo = document.getElementById('currentUrl');
+            const protocol = window.location.protocol;
+            const host = window.location.host;
+            const hostname = window.location.hostname;
+            const isSecure = protocol === 'https:' || hostname === 'localhost' || hostname === '127.0.0.1';
+            
+            urlInfo.textContent = `URL atual: ${protocol}//${host} ${isSecure ? '✅' : '❌ (requer HTTPS)'}`;
+            urlInfo.style.color = isSecure ? '#155724' : '#721c24';
+        });
+
         const MOCK_SESSION_ID = 'sXvHXB2y7DEtt4QBYfbmNLh7TBfBlB5SldrPmTFTrMVCdEGO3yeGl62DcHyRrFDnz89SPXB6HaOuY0xh92BcUmdZ31nsnUv6b0GVyBYENNZ4Y91T';
 
         function showStatus(message, type) {
@@ -309,6 +333,29 @@
                     throw new Error('Método useApplePay não encontrado');
                 }
 
+                // Verificar se está em HTTPS ou localhost (requisito do Apple Pay)
+                const isSecure = window.location.protocol === 'https:' || 
+                                window.location.hostname === 'localhost' || 
+                                window.location.hostname === '127.0.0.1';
+                
+                if (!isSecure) {
+                    const errorMsg = '❌ Apple Pay requer HTTPS! Acesse via https:// ou use localhost';
+                    console.error(errorMsg);
+                    showStatus(errorMsg + ' (atual: ' + window.location.protocol + '//' + window.location.host + ')', 'error');
+                    throw new Error('Apple Pay requer conexão segura (HTTPS) ou localhost');
+                }
+                
+                console.log('✅ Conexão segura verificada:', window.location.protocol + '//' + window.location.host);
+
+                // Verificar se Apple Pay está disponível (apenas em dispositivos Apple)
+                if (typeof ApplePaySession === 'undefined') {
+                    console.warn('ApplePaySession não está disponível - pode não funcionar em dispositivos não-Apple');
+                } else {
+                    console.log('ApplePaySession disponível');
+                    const canMakePayments = ApplePaySession.canMakePayments();
+                    console.log('canMakePayments:', canMakePayments);
+                }
+
                 // Limpar container mas manter estrutura
                 container.innerHTML = '';
                 console.log('Container limpo, pronto para renderizar botão');
@@ -330,6 +377,8 @@
                     },
                     merchantId: 'BCR2DN6TR7QYLIKK',
                     displayName: 'Teste POC Tuna',
+                    countryCode: 'BR',
+                    currencyCode: 'BRL',
                     applePayCallback: function(payload) {
                         console.log('Apple Pay payload:', payload);
                         showStatus('✅ Pagamento processado!', 'success');
@@ -341,8 +390,15 @@
 
                 // Renderizar botão
                 console.log('Chamando tuna.useApplePay...');
-                const isReady = await tuna.useApplePay(applePaySettings);
-                console.log('useApplePay retornou:', isReady);
+                let isReady;
+                try {
+                    isReady = await tuna.useApplePay(applePaySettings);
+                    console.log('useApplePay retornou:', isReady);
+                } catch (error) {
+                    console.error('Erro ao chamar useApplePay:', error);
+                    console.error('Stack trace:', error.stack);
+                    throw new Error(`Erro ao inicializar Apple Pay: ${error.message}`);
+                }
                 
                 if (isReady) {
                     console.log('Apple Pay está pronto, aguardando renderização...');
