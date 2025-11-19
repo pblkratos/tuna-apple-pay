@@ -114,32 +114,60 @@
             showStatus('', '');
 
             try {
-                // 1. Obter sessionId
-                const useMock = document.getElementById('useMockSession').checked;
-                const sessionId = useMock ? MOCK_SESSION_ID : await getSessionId(
-                    document.getElementById('apiUrl').value,
-                    document.getElementById('restaurantId').value
-                );
-                console.log('SessionId:', sessionId);
-
-                // 2. Verificar HTTPS
+                // 1. Verificar HTTPS
                 if (window.location.protocol !== 'https:' && 
                     window.location.hostname !== 'localhost' && 
                     window.location.hostname !== '127.0.0.1') {
                     throw new Error('Apple Pay requer HTTPS ou localhost');
                 }
 
-                // 3. Inicializar Tuna
+                // 2. Verificar se Apple Pay está disponível no navegador
+                console.log('Verificando Apple Pay...');
+                console.log('User Agent:', navigator.userAgent);
+                console.log('ApplePaySession disponível?', typeof ApplePaySession !== 'undefined');
+                
+                if (typeof ApplePaySession === 'undefined') {
+                    const msg = '❌ Apple Pay não está disponível neste navegador. Use Safari no iPhone.';
+                    console.error(msg);
+                    showStatus(msg, 'error');
+                    container.innerHTML = '<p style="color: red;">' + msg + '</p>';
+                    return;
+                }
+
+                const canMakePayments = ApplePaySession.canMakePayments();
+                console.log('canMakePayments:', canMakePayments);
+                
+                if (!canMakePayments) {
+                    const msg = '❌ Apple Pay não está configurado neste dispositivo';
+                    console.error(msg);
+                    showStatus(msg, 'error');
+                    container.innerHTML = '<p style="color: red;">' + msg + '</p>';
+                    return;
+                }
+
+                // 3. Obter sessionId
+                const useMock = document.getElementById('useMockSession').checked;
+                const sessionId = useMock ? MOCK_SESSION_ID : await getSessionId(
+                    document.getElementById('apiUrl').value,
+                    document.getElementById('restaurantId').value
+                );
+                console.log('SessionId obtido:', sessionId.substring(0, 20) + '...');
+
+                // 4. Inicializar Tuna
                 if (typeof Tuna === 'undefined') {
                     throw new Error('Tuna SDK não carregado');
                 }
                 const tuna = Tuna(sessionId, document.getElementById('tunaEnvironment').value);
                 console.log('Tuna inicializado');
 
-                // 4. Limpar container
+                if (typeof tuna.useApplePay !== 'function') {
+                    throw new Error('Método useApplePay não encontrado');
+                }
+
+                // 5. Limpar container
                 container.innerHTML = '';
 
-                // 5. Configurar e renderizar Apple Pay
+                // 6. Configurar e renderizar Apple Pay
                 const settings = {
                     buttom: { selector: '#applePayButtonContainer' },
                     cart: {
@@ -157,27 +185,60 @@
                     }
                 };
 
+                console.log('Chamando useApplePay...');
                 const isReady = await tuna.useApplePay(settings);
                 console.log('useApplePay retornou:', isReady);
 
                 if (isReady) {
-                    showStatus('✅ Botão carregado!', 'success');
-                    // Verificar se botão apareceu após 1 segundo
-                    setTimeout(() => {
+                    // Verificar botão imediatamente e depois
+                    function checkButton() {
                         const button = container.querySelector('apple-pay-button');
+                        console.log('=== VERIFICAÇÃO DO BOTÃO ===');
+                        console.log('Container HTML:', container.innerHTML);
+                        console.log('apple-pay-button encontrado?', !!button);
+                        
                         if (button) {
-                            console.log('✅ Botão encontrado!');
                             const rect = button.getBoundingClientRect();
+                            const style = window.getComputedStyle(button);
                             console.log('Dimensões:', rect.width, 'x', rect.height);
+                            console.log('Display:', style.display);
+                            console.log('Visibility:', style.visibility);
+                            console.log('Opacity:', style.opacity);
+                            
+                            // Forçar visibilidade
                             if (rect.width === 0 || rect.height === 0) {
-                                showStatus('⚠️ Botão sem dimensões. Verifique console.', 'error');
+                                console.log('⚠️ Botão sem dimensões, forçando estilos...');
+                                button.style.cssText = 'display: inline-block !important; visibility: visible !important; width: 100% !important; max-width: 300px !important; min-height: 44px !important; opacity: 1 !important;';
+                                
+                                // Verificar shadow DOM
+                                if (button.shadowRoot) {
+                                    console.log('Shadow DOM encontrado!');
+                                    const shadowButton = button.shadowRoot.querySelector('button');
+                                    if (shadowButton) {
+                                        shadowButton.style.cssText = 'display: block !important; width: 100% !important; min-height: 44px !important;';
+                                    }
+                                }
+                                
+                                const newRect = button.getBoundingClientRect();
+                                if (newRect.width > 0 && newRect.height > 0) {
+                                    showStatus('✅ Botão visível!', 'success');
+                                } else {
+                                    showStatus('⚠️ Botão criado mas sem dimensões', 'error');
+                                }
+                            } else {
+                                showStatus('✅ Botão visível!', 'success');
                             }
                         } else {
-                            console.log('❌ Botão não encontrado');
-                            console.log('HTML do container:', container.innerHTML);
-                            showStatus('❌ Botão não renderizado. Verifique console.', 'error');
+                            console.log('❌ Botão não encontrado no container');
+                            showStatus('❌ Botão não foi renderizado pela Tuna', 'error');
                         }
-                    }, 1000);
+                    }
+                    
+                    // Verificar várias vezes
+                    checkButton();
+                    setTimeout(checkButton, 500);
+                    setTimeout(checkButton, 1000);
+                    setTimeout(checkButton, 2000);
                 } else {
                     showStatus('❌ Apple Pay não disponível', 'error');
                 }
