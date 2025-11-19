@@ -194,21 +194,44 @@
             const container = document.getElementById('applePayButtonContainer');
             container.innerHTML = '<p>Carregando...</p>';
             showStatus('', '');
+            
+            // Limpar logs anteriores (manter apenas os 2 primeiros)
+            const logsDiv = document.getElementById('logs');
+            while (logsDiv.children.length > 2) {
+                logsDiv.removeChild(logsDiv.lastChild);
+            }
 
             try {
+                console.log('=== INICIANDO PROCESSO ===');
+                
                 // 1. Verificar HTTPS
+                console.log('Verificando HTTPS...');
+                console.log('Protocol:', window.location.protocol);
+                console.log('Hostname:', window.location.hostname);
+                
                 if (window.location.protocol !== 'https:' && 
                     window.location.hostname !== 'localhost' && 
                     window.location.hostname !== '127.0.0.1') {
                     throw new Error('Apple Pay requer HTTPS ou localhost');
                 }
+                console.log('✅ HTTPS/localhost verificado');
 
                 // 2. Verificar se Apple Pay está disponível no navegador
                 console.log('Verificando Apple Pay...');
                 console.log('User Agent:', navigator.userAgent);
-                console.log('ApplePaySession disponível?', typeof ApplePaySession !== 'undefined');
                 
-                if (typeof ApplePaySession === 'undefined') {
+                // Verificar se ApplePaySession existe (pode travar aqui)
+                console.log('Verificando se ApplePaySession existe...');
+                let hasApplePaySession = false;
+                try {
+                    hasApplePaySession = typeof ApplePaySession !== 'undefined';
+                    console.log('ApplePaySession disponível?', hasApplePaySession);
+                } catch (e) {
+                    console.error('Erro ao verificar ApplePaySession:', e);
+                    hasApplePaySession = false;
+                }
+                
+                if (!hasApplePaySession) {
                     const msg = '❌ Apple Pay não está disponível neste navegador. Use Safari no iPhone.';
                     console.error(msg);
                     showStatus(msg, 'error');
@@ -216,8 +239,16 @@
                     return;
                 }
 
-                const canMakePayments = ApplePaySession.canMakePayments();
-                console.log('canMakePayments:', canMakePayments);
+                // Verificar canMakePayments (pode travar aqui também)
+                console.log('Chamando ApplePaySession.canMakePayments()...');
+                let canMakePayments = false;
+                try {
+                    canMakePayments = ApplePaySession.canMakePayments();
+                    console.log('canMakePayments retornou:', canMakePayments);
+                } catch (e) {
+                    console.error('Erro ao chamar canMakePayments:', e);
+                    throw new Error('Erro ao verificar canMakePayments: ' + e.message);
+                }
                 
                 if (!canMakePayments) {
                     const msg = '❌ Apple Pay não está configurado neste dispositivo';
@@ -226,25 +257,57 @@
                     container.innerHTML = '<p style="color: red;">' + msg + '</p>';
                     return;
                 }
+                console.log('✅ Apple Pay está disponível e configurado!');
 
                 // 3. Obter sessionId
+                console.log('Obtendo sessionId...');
                 const useMock = document.getElementById('useMockSession').checked;
-                const sessionId = useMock ? MOCK_SESSION_ID : await getSessionId(
-                    document.getElementById('apiUrl').value,
-                    document.getElementById('restaurantId').value
-                );
+                console.log('Usar mock?', useMock);
+                
+                let sessionId;
+                if (useMock) {
+                    console.log('Usando sessionId mock...');
+                    sessionId = MOCK_SESSION_ID;
+                } else {
+                    console.log('Buscando sessionId da API...');
+                    try {
+                        sessionId = await getSessionId(
+                            document.getElementById('apiUrl').value,
+                            document.getElementById('restaurantId').value
+                        );
+                        console.log('SessionId obtido da API');
+                    } catch (error) {
+                        console.error('Erro ao obter sessionId:', error);
+                        throw error;
+                    }
+                }
                 console.log('SessionId obtido:', sessionId.substring(0, 20) + '...');
 
                 // 4. Inicializar Tuna
+                console.log('Verificando se Tuna SDK está carregado...');
                 if (typeof Tuna === 'undefined') {
                     throw new Error('Tuna SDK não carregado');
                 }
-                const tuna = Tuna(sessionId, document.getElementById('tunaEnvironment').value);
-                console.log('Tuna inicializado');
+                console.log('Tuna SDK encontrado!');
+                
+                const environment = document.getElementById('tunaEnvironment').value;
+                console.log('Inicializando Tuna com ambiente:', environment);
+                
+                let tuna;
+                try {
+                    tuna = Tuna(sessionId, environment);
+                    console.log('✅ Tuna inicializado com sucesso!');
+                } catch (error) {
+                    console.error('Erro ao inicializar Tuna:', error);
+                    throw new Error('Erro ao inicializar Tuna: ' + error.message);
+                }
 
+                console.log('Verificando se useApplePay existe...');
                 if (typeof tuna.useApplePay !== 'function') {
+                    console.error('Métodos disponíveis:', Object.keys(tuna));
                     throw new Error('Método useApplePay não encontrado');
                 }
+                console.log('✅ useApplePay encontrado!');
 
                 // 5. Limpar container
                 container.innerHTML = '';
