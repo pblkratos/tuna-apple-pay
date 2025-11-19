@@ -54,6 +54,32 @@
         }
         .success { background: #d4edda; color: #155724; }
         .error { background: #f8d7da; color: #721c24; }
+        .logs-container {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 5px;
+            border-left: 3px solid transparent;
+            word-wrap: break-word;
+        }
+        .log-entry.info { border-left-color: #2196f3; }
+        .log-entry.success { border-left-color: #4caf50; }
+        .log-entry.error { border-left-color: #f44336; color: #ff6b6b; }
+        .log-entry.warn { border-left-color: #ff9800; color: #ffb74d; }
+        .log-timestamp {
+            color: #888;
+            font-size: 10px;
+        }
     </style>
 </head>
 <body>
@@ -88,9 +114,65 @@
 
     <div id="status"></div>
 
+    <div class="logs-container">
+        <div style="margin-bottom: 10px; font-weight: bold; color: #fff;">📋 Logs do Console:</div>
+        <div id="logs"></div>
+    </div>
+
     <script src="https://storage.googleapis.com/tuna-statics/tuna-v2.js"></script>
     <script>
         const MOCK_SESSION_ID = 'sXvHXB2y7DEtt4QBYfbmNLh7TBfBlB5SldrPmTFTrMVCdEGO3yeGl62DcHyRrFDnz89SPXB6HaOuY0xh92BcUmdZ31nsnUv6b0GVyBYENNZ4Y91T';
+
+        // Função para adicionar log visual
+        function addLog(message, type = 'info') {
+            const logsDiv = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const timestampSpan = document.createElement('span');
+            timestampSpan.className = 'log-timestamp';
+            timestampSpan.textContent = '[' + timestamp + '] ';
+            
+            const messageSpan = document.createElement('span');
+            messageSpan.textContent = message;
+            
+            entry.appendChild(timestampSpan);
+            entry.appendChild(messageSpan);
+            logsDiv.appendChild(entry);
+            
+            // Scroll para o final
+            logsDiv.scrollTop = logsDiv.scrollHeight;
+            
+            // Manter apenas os últimos 50 logs
+            while (logsDiv.children.length > 50) {
+                logsDiv.removeChild(logsDiv.firstChild);
+            }
+        }
+
+        // Interceptar console.log, console.error, etc.
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+
+        console.log = function(...args) {
+            originalLog.apply(console, args);
+            addLog(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' '), 'info');
+        };
+
+        console.error = function(...args) {
+            originalError.apply(console, args);
+            addLog(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' '), 'error');
+        };
+
+        console.warn = function(...args) {
+            originalWarn.apply(console, args);
+            addLog(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' '), 'warn');
+        };
+
+        // Log inicial
+        addLog('✅ Sistema de logs inicializado', 'success');
+        addLog('Aguardando clique em "Carregar Apple Pay"...', 'info');
 
         function showStatus(msg, type) {
             const status = document.getElementById('status');
@@ -194,42 +276,54 @@
                     function checkButton() {
                         const button = container.querySelector('apple-pay-button');
                         console.log('=== VERIFICAÇÃO DO BOTÃO ===');
-                        console.log('Container HTML:', container.innerHTML);
+                        console.log('Container HTML (primeiros 200 chars):', container.innerHTML.substring(0, 200));
                         console.log('apple-pay-button encontrado?', !!button);
+                        console.log('Número de filhos no container:', container.children.length);
                         
                         if (button) {
                             const rect = button.getBoundingClientRect();
                             const style = window.getComputedStyle(button);
-                            console.log('Dimensões:', rect.width, 'x', rect.height);
+                            console.log('Dimensões:', rect.width + 'px x ' + rect.height + 'px');
                             console.log('Display:', style.display);
                             console.log('Visibility:', style.visibility);
                             console.log('Opacity:', style.opacity);
+                            console.log('Position:', style.position);
                             
                             // Forçar visibilidade
                             if (rect.width === 0 || rect.height === 0) {
-                                console.log('⚠️ Botão sem dimensões, forçando estilos...');
-                                button.style.cssText = 'display: inline-block !important; visibility: visible !important; width: 100% !important; max-width: 300px !important; min-height: 44px !important; opacity: 1 !important;';
+                                console.warn('⚠️ Botão sem dimensões, forçando estilos...');
+                                button.style.cssText = 'display: inline-block !important; visibility: visible !important; width: 100% !important; max-width: 300px !important; min-height: 44px !important; opacity: 1 !important; position: relative !important;';
                                 
                                 // Verificar shadow DOM
                                 if (button.shadowRoot) {
-                                    console.log('Shadow DOM encontrado!');
+                                    console.log('✅ Shadow DOM encontrado!');
                                     const shadowButton = button.shadowRoot.querySelector('button');
                                     if (shadowButton) {
+                                        console.log('✅ Botão dentro do shadow DOM encontrado!');
                                         shadowButton.style.cssText = 'display: block !important; width: 100% !important; min-height: 44px !important;';
+                                    } else {
+                                        console.warn('⚠️ Botão não encontrado dentro do shadow DOM');
                                     }
+                                } else {
+                                    console.log('ℹ️ Shadow DOM não encontrado (pode ser normal)');
                                 }
                                 
                                 const newRect = button.getBoundingClientRect();
+                                console.log('Nova verificação - Dimensões:', newRect.width + 'px x ' + newRect.height + 'px');
                                 if (newRect.width > 0 && newRect.height > 0) {
+                                    console.log('✅ Botão agora tem dimensões!');
                                     showStatus('✅ Botão visível!', 'success');
                                 } else {
+                                    console.error('❌ Botão ainda sem dimensões após aplicar estilos');
                                     showStatus('⚠️ Botão criado mas sem dimensões', 'error');
                                 }
                             } else {
+                                console.log('✅ Botão tem dimensões corretas!');
                                 showStatus('✅ Botão visível!', 'success');
                             }
                         } else {
-                            console.log('❌ Botão não encontrado no container');
+                            console.error('❌ Botão não encontrado no container');
+                            console.log('Elementos no container:', Array.from(container.children).map(el => el.tagName).join(', '));
                             showStatus('❌ Botão não foi renderizado pela Tuna', 'error');
                         }
                     }
@@ -240,6 +334,7 @@
                     setTimeout(checkButton, 1000);
                     setTimeout(checkButton, 2000);
                 } else {
+                    console.error('❌ useApplePay retornou false - Apple Pay não disponível');
                     showStatus('❌ Apple Pay não disponível', 'error');
                 }
 
