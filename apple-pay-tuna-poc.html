@@ -46,6 +46,15 @@
             width: 100% !important;
             max-width: 300px !important;
             min-height: 44px !important;
+            visibility: visible !important;
+            opacity: 1 !important;
+            position: relative !important;
+        }
+        /* Forçar visibilidade mesmo dentro de shadow DOM */
+        apple-pay-button::part(button) {
+            display: block !important;
+            width: 100% !important;
+            min-height: 44px !important;
         }
         .status {
             padding: 10px;
@@ -472,6 +481,92 @@
                 const originalCanMakePaymentsWithActiveCard = ApplePaySession.canMakePaymentsWithActiveCard;
                 let canMakePaymentsCallCount = 0;
                 let canMakePaymentsResults = [];
+                let applePaySessions = [];
+                
+                // Interceptar o construtor do ApplePaySession
+                const OriginalApplePaySession = window.ApplePaySession;
+                window.ApplePaySession = function(version, request) {
+                    console.log('🔍 [INTERCEPTADO] ApplePaySession criado!');
+                    console.log('  Versão:', version);
+                    console.log('  Request:', request);
+                    
+                    const session = new OriginalApplePaySession(version, request);
+                    applePaySessions.push({ session, version, request, timestamp: new Date().toISOString() });
+                    
+                    // Interceptar métodos importantes
+                    const originalBegin = session.begin;
+                    const originalAbort = session.abort;
+                    const originalCompletePayment = session.completePayment;
+                    
+                    session.begin = function() {
+                        console.log('🔍 [INTERCEPTADO] session.begin() chamado!');
+                        console.log('  Session:', session);
+                        console.log('  Handlers configurados:');
+                        console.log('    - onvalidatemerchant:', typeof session.onvalidatemerchant);
+                        console.log('    - onpaymentauthorized:', typeof session.onpaymentauthorized);
+                        console.log('    - oncancel:', typeof session.oncancel);
+                        return originalBegin.apply(this, arguments);
+                    };
+                    
+                    session.abort = function() {
+                        console.log('🔍 [INTERCEPTADO] session.abort() chamado!');
+                        return originalAbort.apply(this, arguments);
+                    };
+                    
+                    session.completePayment = function(status) {
+                        console.log('🔍 [INTERCEPTADO] session.completePayment() chamado com status:', status);
+                        return originalCompletePayment.apply(this, arguments);
+                    };
+                    
+                    // Interceptar setters de event handlers
+                    let originalOnValidateMerchant = null;
+                    let originalOnPaymentAuthorized = null;
+                    
+                    Object.defineProperty(session, 'onvalidatemerchant', {
+                        get: function() { return originalOnValidateMerchant; },
+                        set: function(fn) {
+                            console.log('🔍 [INTERCEPTADO] onvalidatemerchant definido:', typeof fn);
+                            originalOnValidateMerchant = fn;
+                            if (fn) {
+                                session.onvalidatemerchant = function(event) {
+                                    console.log('🔍 [INTERCEPTADO] onvalidatemerchant disparado!');
+                                    console.log('  validationURL:', event.validationURL);
+                                    return fn.apply(this, arguments);
+                                };
+                            }
+                        }
+                    });
+                    
+                    Object.defineProperty(session, 'onpaymentauthorized', {
+                        get: function() { return originalOnPaymentAuthorized; },
+                        set: function(fn) {
+                            console.log('🔍 [INTERCEPTADO] onpaymentauthorized definido:', typeof fn);
+                            originalOnPaymentAuthorized = fn;
+                            if (fn) {
+                                session.onpaymentauthorized = function(event) {
+                                    console.log('🔍 [INTERCEPTADO] onpaymentauthorized disparado!');
+                                    console.log('  payment:', event.payment);
+                                    return fn.apply(this, arguments);
+                                };
+                            }
+                        }
+                    });
+                    
+                    return session;
+                };
+                
+                // Copiar propriedades estáticas
+                Object.setPrototypeOf(window.ApplePaySession, OriginalApplePaySession);
+                Object.getOwnPropertyNames(OriginalApplePaySession).forEach(name => {
+                    if (name !== 'prototype' && name !== 'length' && name !== 'name') {
+                        try {
+                            window.ApplePaySession[name] = OriginalApplePaySession[name];
+                        } catch (e) {
+                            console.warn('Não foi possível copiar propriedade:', name);
+                        }
+                    }
+                });
+                window.ApplePaySession.prototype = OriginalApplePaySession.prototype;
                 
                 ApplePaySession.canMakePayments = function() {
                     canMakePaymentsCallCount++;
@@ -526,7 +621,17 @@
                     console.log('🔍 Resultados de canMakePayments:', canMakePaymentsResults);
                     console.log('🔍 querySelector foi chamado', querySelectorCalls.length, 'vezes para o container');
                     
+                    console.log('🔍 Sessões ApplePaySession criadas:', applePaySessions.length);
+                    applePaySessions.forEach((s, i) => {
+                        console.log(`  Sessão ${i + 1}:`, {
+                            version: s.version,
+                            merchantId: s.request.merchantIdentifier,
+                            timestamp: s.timestamp
+                        });
+                    });
+                    
                     // Restaurar funções originais
+                    window.ApplePaySession = OriginalApplePaySession;
                     ApplePaySession.canMakePayments = originalCanMakePayments;
                     if (originalCanMakePaymentsWithActiveCard) {
                         ApplePaySession.canMakePaymentsWithActiveCard = originalCanMakePaymentsWithActiveCard;
@@ -550,6 +655,14 @@
                             console.error('ERR:44 = embeddedMode requer embedderOrigin');
                         }
                     }
+                    
+                    // Restaurar funções originais em caso de erro
+                    window.ApplePaySession = OriginalApplePaySession;
+                    ApplePaySession.canMakePayments = originalCanMakePayments;
+                    if (originalCanMakePaymentsWithActiveCard) {
+                        ApplePaySession.canMakePaymentsWithActiveCard = originalCanMakePaymentsWithActiveCard;
+                    }
+                    document.querySelector = originalQuerySelector;
                     
                     throw error;
                 } finally {
@@ -614,39 +727,94 @@
                             console.log('Opacity:', style.opacity);
                             console.log('Position:', style.position);
                             
-                            // Forçar visibilidade
-                            if (rect.width === 0 || rect.height === 0) {
-                                console.warn('⚠️ Botão sem dimensões, forçando estilos...');
-                                button.style.cssText = 'display: inline-block !important; visibility: visible !important; width: 100% !important; max-width: 300px !important; min-height: 44px !important; opacity: 1 !important; position: relative !important;';
-                                
-                                // Verificar shadow DOM
-                                if (button.shadowRoot) {
-                                    console.log('✅ Shadow DOM encontrado!');
-                                    const shadowButton = button.shadowRoot.querySelector('button');
-                                    if (shadowButton) {
-                                        console.log('✅ Botão dentro do shadow DOM encontrado!');
-                                        shadowButton.style.cssText = 'display: block !important; width: 100% !important; min-height: 44px !important;';
-                                    } else {
-                                        console.warn('⚠️ Botão não encontrado dentro do shadow DOM');
-                                    }
+                            // SEMPRE forçar visibilidade, mesmo que tenha dimensões
+                            console.log('🔧 Forçando visibilidade do botão...');
+                            button.style.cssText = 'display: inline-block !important; visibility: visible !important; width: 100% !important; max-width: 300px !important; min-height: 44px !important; opacity: 1 !important; position: relative !important;';
+                            
+                            // Verificar shadow DOM
+                            if (button.shadowRoot) {
+                                console.log('✅ Shadow DOM encontrado!');
+                                const shadowButton = button.shadowRoot.querySelector('button');
+                                if (shadowButton) {
+                                    console.log('✅ Botão dentro do shadow DOM encontrado!');
+                                    shadowButton.style.cssText = 'display: block !important; width: 100% !important; min-height: 44px !important;';
                                 } else {
-                                    console.log('ℹ️ Shadow DOM não encontrado (pode ser normal)');
-                                }
-                                
-                                const newRect = button.getBoundingClientRect();
-                                console.log('Nova verificação - Dimensões:', newRect.width + 'px x ' + newRect.height + 'px');
-                                if (newRect.width > 0 && newRect.height > 0) {
-                                    console.log('✅ Botão agora tem dimensões!');
-                                    showStatus('✅ Botão visível!', 'success');
-                                    observer.disconnect();
-                                } else {
-                                    console.error('❌ Botão ainda sem dimensões após aplicar estilos');
-                                    showStatus('⚠️ Botão criado mas sem dimensões', 'error');
+                                    console.warn('⚠️ Botão não encontrado dentro do shadow DOM');
                                 }
                             } else {
-                                console.log('✅ Botão tem dimensões corretas!');
-                                showStatus('✅ Botão visível!', 'success');
+                                console.log('ℹ️ Shadow DOM não encontrado (pode ser normal)');
+                            }
+                            
+                            // Interceptar evento de click para debug
+                            button.addEventListener('click', function(e) {
+                                console.log('🔍 [CLICK INTERCEPTADO] Botão clicado!');
+                                console.log('Event:', e);
+                                console.log('Target:', e.target);
+                                console.log('CurrentTarget:', e.currentTarget);
+                                
+                                // Verificar se há uma sessão do Apple Pay ativa
+                                console.log('Verificando se há sessão Apple Pay ativa...');
+                                console.log('Sessões criadas:', applePaySessions.length);
+                                
+                                // Verificar se alguma sessão precisa ser iniciada
+                                applePaySessions.forEach((s, i) => {
+                                    console.log(`  Sessão ${i + 1}:`, {
+                                        session: s.session,
+                                        hasBegin: typeof s.session.begin === 'function',
+                                        handlers: {
+                                            onvalidatemerchant: typeof s.session.onvalidatemerchant,
+                                            onpaymentauthorized: typeof s.session.onpaymentauthorized
+                                        }
+                                    });
+                                });
+                                
+                                // Se não houver sessões ou handlers não configurados, pode ser o problema
+                                if (applePaySessions.length === 0) {
+                                    console.error('⚠️ PROBLEMA: Nenhuma sessão ApplePaySession foi criada pela Tuna!');
+                                    console.error('   Isso significa que a Tuna não está criando a sessão corretamente.');
+                                } else {
+                                    const lastSession = applePaySessions[applePaySessions.length - 1].session;
+                                    if (!lastSession.onvalidatemerchant || !lastSession.onpaymentauthorized) {
+                                        console.error('⚠️ PROBLEMA: Sessão criada mas handlers não configurados!');
+                                        console.error('   onvalidatemerchant:', typeof lastSession.onvalidatemerchant);
+                                        console.error('   onpaymentauthorized:', typeof lastSession.onpaymentauthorized);
+                                    } else {
+                                        console.log('✅ Sessão parece estar configurada corretamente');
+                                        console.log('   Se o popup não abrir, pode ser que session.begin() não esteja sendo chamado');
+                                    }
+                                }
+                                
+                                // Não prevenir o comportamento padrão, apenas logar
+                            }, { capture: true });
+                            
+                            // Adicionar listener também no container para capturar qualquer click
+                            container.addEventListener('click', function(e) {
+                                console.log('🔍 [CLICK NO CONTAINER] Detectado!');
+                                console.log('Target:', e.target);
+                                console.log('Path:', e.composedPath());
+                            }, { capture: true });
+                            
+                            const newRect = button.getBoundingClientRect();
+                            console.log('Nova verificação - Dimensões:', newRect.width + 'px x ' + newRect.height + 'px');
+                            if (newRect.width > 0 && newRect.height > 0) {
+                                console.log('✅ Botão agora tem dimensões e está visível!');
+                                showStatus('✅ Botão visível! Clique para testar', 'success');
                                 observer.disconnect();
+                            } else {
+                                console.warn('⚠️ Botão ainda sem dimensões após aplicar estilos');
+                                console.warn('Tentando método alternativo...');
+                                
+                                // Método alternativo: criar um wrapper visível
+                                const wrapper = document.createElement('div');
+                                wrapper.style.cssText = 'display: block; width: 100%; max-width: 300px; min-height: 44px; position: relative; background: rgba(0,0,0,0.1); border: 2px solid #007AFF; border-radius: 4px;';
+                                wrapper.innerHTML = '<div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">';
+                                
+                                // Mover o botão para dentro do wrapper
+                                button.parentNode.insertBefore(wrapper, button);
+                                wrapper.appendChild(button);
+                                button.style.cssText = 'display: block !important; width: 100% !important; height: 100% !important; position: absolute !important; top: 0 !important; left: 0 !important; opacity: 1 !important; z-index: 2 !important;';
+                                
+                                showStatus('⚠️ Botão criado mas sem dimensões - wrapper adicionado', 'warn');
                             }
                         } else {
                             console.warn('⚠️ Botão ainda não encontrado no container');
