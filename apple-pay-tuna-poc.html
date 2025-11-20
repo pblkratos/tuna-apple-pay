@@ -442,6 +442,11 @@
                         return Promise.resolve();
                     }
                 };
+                
+                // Guardar settings e tuna para uso posterior (criação manual de sessão)
+                window._tunaSettings = settings;
+                window._tunaInstance = tuna;
+                window._tunaSessionId = sessionId;
 
                 console.log('Settings configurados:', JSON.stringify(settings, null, 2));
                 console.log('Verificando elemento novamente antes de chamar useApplePay...');
@@ -768,24 +773,185 @@
                                     });
                                 });
                                 
-                                // Se não houver sessões ou handlers não configurados, pode ser o problema
+                                // Se não houver sessões ou handlers não configurados, criar manualmente
                                 if (applePaySessions.length === 0) {
                                     console.error('⚠️ PROBLEMA: Nenhuma sessão ApplePaySession foi criada pela Tuna!');
-                                    console.error('   Isso significa que a Tuna não está criando a sessão corretamente.');
+                                    console.error('   Criando sessão manualmente...');
+                                    
+                                    // Criar sessão manualmente
+                                    createManualApplePaySession();
                                 } else {
                                     const lastSession = applePaySessions[applePaySessions.length - 1].session;
                                     if (!lastSession.onvalidatemerchant || !lastSession.onpaymentauthorized) {
                                         console.error('⚠️ PROBLEMA: Sessão criada mas handlers não configurados!');
-                                        console.error('   onvalidatemerchant:', typeof lastSession.onvalidatemerchant);
-                                        console.error('   onpaymentauthorized:', typeof lastSession.onpaymentauthorized);
+                                        console.error('   Criando nova sessão manualmente...');
+                                        
+                                        // Criar sessão manualmente
+                                        createManualApplePaySession();
                                     } else {
                                         console.log('✅ Sessão parece estar configurada corretamente');
                                         console.log('   Se o popup não abrir, pode ser que session.begin() não esteja sendo chamado');
+                                        
+                                        // Mesmo assim, tentar iniciar a sessão se não foi iniciada
+                                        try {
+                                            lastSession.begin();
+                                            console.log('✅ session.begin() chamado manualmente!');
+                                        } catch (beginError) {
+                                            console.error('Erro ao chamar begin():', beginError);
+                                            // Se falhar, criar nova sessão
+                                            createManualApplePaySession();
+                                        }
                                     }
                                 }
                                 
                                 // Não prevenir o comportamento padrão, apenas logar
                             }, { capture: true });
+                            
+                            // Função para criar sessão Apple Pay manualmente
+                            function createManualApplePaySession() {
+                                try {
+                                    const settings = window._tunaSettings;
+                                    if (!settings) {
+                                        console.error('❌ Settings não disponíveis para criar sessão manual');
+                                        return;
+                                    }
+                                    
+                                    console.log('🔧 Criando sessão Apple Pay manualmente...');
+                                    
+                                    // Preparar request do Apple Pay
+                                    const request = {
+                                        countryCode: settings.countryCode || 'BR',
+                                        currencyCode: settings.currencyCode || 'BRL',
+                                        supportedNetworks: ['visa', 'masterCard', 'amex', 'discover'],
+                                        merchantCapabilities: ['supports3DS', 'supportsCredit', 'supportsDebit'],
+                                        total: {
+                                            label: settings.cart.total.label || 'Total',
+                                            amount: settings.cart.total.amount.toFixed(2)
+                                        },
+                                        lineItems: settings.cart.lineItems.map(item => ({
+                                            label: item.label,
+                                            amount: item.amount.toFixed(2)
+                                        }))
+                                    };
+                                    
+                                    console.log('Request configurado:', request);
+                                    
+                                    // Criar sessão
+                                    const session = new ApplePaySession(3, request);
+                                    
+                                    // Configurar handlers
+                                    session.onvalidatemerchant = async function(event) {
+                                        console.log('🔍 [MANUAL] onvalidatemerchant chamado');
+                                        console.log('validationURL:', event.validationURL);
+                                        
+                                        try {
+                                            // A validação do merchant precisa ser feita via API da Apple
+                                            // A Tuna normalmente faz isso internamente, mas como não está funcionando,
+                                            // vamos chamar nossa API que deve fazer a validação
+                                            const apiUrl = document.getElementById('apiUrl').value;
+                                            const restaurantId = document.getElementById('restaurantId').value;
+                                            const sessionId = window._tunaSessionId;
+                                            
+                                            console.log('Validando merchant via API...');
+                                            console.log('SessionId:', sessionId);
+                                            
+                                            // Chamar endpoint que valida o merchant usando a Tuna
+                                            // Se não existir, vamos tentar usar a API da Tuna diretamente
+                                            const validateRes = await fetch(`${apiUrl}/restaurant/tuna/session/validate`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    restaurantId: parseInt(restaurantId),
+                                                    sessionId: sessionId,
+                                                    validationURL: event.validationURL
+                                                })
+                                            });
+                                            
+                                            if (!validateRes.ok) {
+                                                // Se o endpoint não existir, vamos tentar usar a Tuna SDK diretamente
+                                                console.warn('Endpoint de validação não encontrado, tentando usar Tuna SDK...');
+                                                
+                                                // Verificar se a Tuna tem métodos para validar merchant
+                                                const tuna = window._tunaInstance;
+                                                if (tuna) {
+                                                    console.log('Métodos disponíveis na Tuna:', Object.keys(tuna));
+                                                    
+                                                    // Tentar métodos comuns
+                                                    if (typeof tuna.validateMerchant === 'function') {
+                                                        console.log('Tentando usar tuna.validateMerchant()...');
+                                                        const validation = await tuna.validateMerchant(event.validationURL);
+                                                        session.completeMerchantValidation(validation);
+                                                        return;
+                                                    }
+                                                    
+                                                    if (typeof tuna.applePayValidateMerchant === 'function') {
+                                                        console.log('Tentando usar tuna.applePayValidateMerchant()...');
+                                                        const validation = await tuna.applePayValidateMerchant(event.validationURL);
+                                                        session.completeMerchantValidation(validation);
+                                                        return;
+                                                    }
+                                                }
+                                                
+                                                throw new Error('Endpoint não disponível e Tuna não tem método de validação');
+                                            }
+                                            
+                                            const validateData = await validateRes.json();
+                                            console.log('Merchant validado:', validateData);
+                                            
+                                            // A resposta deve ser o merchant session que a Apple espera
+                                            session.completeMerchantValidation(validateData);
+                                        } catch (error) {
+                                            console.error('Erro ao validar merchant:', error);
+                                            console.error('⚠️ IMPORTANTE: É necessário criar um endpoint no backend para validar o merchant do Apple Pay');
+                                            console.error('   O endpoint deve receber validationURL e retornar o merchant session');
+                                            console.error('   Exemplo: POST /restaurant/tuna/session/validate');
+                                            console.error('   Body: { restaurantId, sessionId, validationURL }');
+                                            
+                                            showStatus('❌ Validação de merchant falhou - endpoint necessário no backend', 'error');
+                                            
+                                            // Abortar sessão
+                                            session.abort();
+                                        }
+                                    };
+                                    
+                                    session.onpaymentauthorized = async function(event) {
+                                        console.log('🔍 [MANUAL] onpaymentauthorized chamado');
+                                        console.log('payment:', event.payment);
+                                        
+                                        try {
+                                            // Chamar o callback da Tuna
+                                            const callback = settings.applePayCallback;
+                                            if (callback && typeof callback === 'function') {
+                                                await callback(event.payment);
+                                                session.completePayment(ApplePaySession.STATUS_SUCCESS);
+                                                showStatus('✅ Pagamento processado com sucesso!', 'success');
+                                            } else {
+                                                throw new Error('Callback não disponível');
+                                            }
+                                        } catch (error) {
+                                            console.error('Erro ao processar pagamento:', error);
+                                            session.completePayment(ApplePaySession.STATUS_FAILURE);
+                                            showStatus('❌ Erro ao processar pagamento: ' + error.message, 'error');
+                                        }
+                                    };
+                                    
+                                    session.oncancel = function() {
+                                        console.log('🔍 [MANUAL] Sessão cancelada pelo usuário');
+                                        showStatus('Pagamento cancelado', 'warn');
+                                    };
+                                    
+                                    // Iniciar sessão
+                                    console.log('✅ Sessão criada manualmente, iniciando...');
+                                    session.begin();
+                                    console.log('✅ session.begin() chamado!');
+                                    
+                                    showStatus('✅ Sessão Apple Pay criada e iniciada manualmente!', 'success');
+                                    
+                                } catch (error) {
+                                    console.error('❌ Erro ao criar sessão manual:', error);
+                                    showStatus('❌ Erro ao criar sessão: ' + error.message, 'error');
+                                }
+                            }
                             
                             // Adicionar listener também no container para capturar qualquer click
                             container.addEventListener('click', function(e) {
