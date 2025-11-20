@@ -242,9 +242,21 @@
                 // Verificar canMakePayments (pode travar aqui também)
                 console.log('Chamando ApplePaySession.canMakePayments()...');
                 let canMakePayments = false;
+                let canMakePaymentsWithMerchant = false;
                 try {
                     canMakePayments = ApplePaySession.canMakePayments();
-                    console.log('canMakePayments retornou:', canMakePayments);
+                    console.log('canMakePayments() retornou:', canMakePayments);
+                    
+                    // Verificar também com merchantId (mais específico)
+                    const merchantId = 'BCR2DN6TR7QYLIKK';
+                    if (ApplePaySession.supportsVersion && ApplePaySession.supportsVersion(3)) {
+                        try {
+                            canMakePaymentsWithMerchant = ApplePaySession.canMakePaymentsWithActiveCard(merchantId);
+                            console.log('canMakePaymentsWithActiveCard() retornou:', canMakePaymentsWithMerchant);
+                        } catch (e) {
+                            console.warn('canMakePaymentsWithActiveCard não disponível ou erro:', e.message);
+                        }
+                    }
                 } catch (e) {
                     console.error('Erro ao chamar canMakePayments:', e);
                     throw new Error('Erro ao verificar canMakePayments: ' + e.message);
@@ -258,6 +270,9 @@
                     return;
                 }
                 console.log('✅ Apple Pay está disponível e configurado!');
+                if (canMakePaymentsWithMerchant) {
+                    console.log('✅ Apple Pay também está disponível com o merchantId específico!');
+                }
 
                 // 3. Obter sessionId
                 console.log('Obtendo sessionId...');
@@ -309,12 +324,26 @@
                 }
                 console.log('✅ useApplePay encontrado!');
 
-                // 5. Limpar container
+                // 5. Preparar container - garantir que existe e está vazio
+                console.log('Preparando container...');
+                const selector = '#applePayButtonContainer';
+                
+                // Verificar se o elemento existe no DOM
+                const containerElement = document.querySelector(selector);
+                console.log('Elemento encontrado no DOM?', !!containerElement);
+                console.log('ID do elemento:', containerElement ? containerElement.id : 'não encontrado');
+                
+                if (!containerElement) {
+                    throw new Error('Container não encontrado no DOM: ' + selector);
+                }
+                
+                // Limpar container mas manter o elemento no DOM
                 container.innerHTML = '';
+                console.log('✅ Container limpo e pronto');
 
                 // 6. Configurar e renderizar Apple Pay
                 const settings = {
-                    buttom: { selector: '#applePayButtonContainer' },
+                    buttom: { selector: selector },
                     cart: {
                         lineItems: [{ label: 'Teste', amount: 1.00 }],
                         total: { label: 'Total', amount: 1.00 }
@@ -330,18 +359,126 @@
                     }
                 };
 
+                console.log('Settings configurados:', JSON.stringify(settings, null, 2));
+                console.log('Verificando elemento novamente antes de chamar useApplePay...');
+                const elementCheck = document.querySelector(selector);
+                console.log('Elemento ainda existe?', !!elementCheck);
+                console.log('Elemento visível?', elementCheck ? window.getComputedStyle(elementCheck).display !== 'none' : false);
+                
+                if (!elementCheck) {
+                    throw new Error('Elemento desapareceu do DOM antes de chamar useApplePay');
+                }
+
+                // Adicionar handler global de erros não capturados
+                const originalErrorHandler = window.onerror;
+                window.onerror = function(msg, url, line, col, error) {
+                    console.error('❌ ERRO GLOBAL CAPTURADO:', msg);
+                    console.error('URL:', url, 'Linha:', line, 'Col:', col);
+                    if (error) {
+                        console.error('Erro completo:', error);
+                    }
+                    if (originalErrorHandler) {
+                        originalErrorHandler.apply(window, arguments);
+                    }
+                };
+
+                // Adicionar handler para promises rejeitadas
+                const unhandledRejectionHandler = function(event) {
+                    console.error('❌ PROMISE REJEITADA NÃO TRATADA:', event.reason);
+                    if (event.reason) {
+                        console.error('Razão:', event.reason);
+                        console.error('Stack:', event.reason.stack);
+                    }
+                };
+                window.addEventListener('unhandledrejection', unhandledRejectionHandler);
+
                 console.log('Chamando useApplePay...');
-                const isReady = await tuna.useApplePay(settings);
-                console.log('useApplePay retornou:', isReady);
+                console.log('Tuna object:', tuna);
+                console.log('useApplePay function:', tuna.useApplePay);
+                let isReady;
+                try {
+                    // Verificar se o elemento ainda existe no momento exato da chamada
+                    const finalCheck = document.querySelector(selector);
+                    if (!finalCheck) {
+                        throw new Error('Elemento não encontrado no momento exato da chamada');
+                    }
+                    
+                    console.log('✅ Elemento confirmado, chamando useApplePay agora...');
+                    isReady = await tuna.useApplePay(settings);
+                    console.log('useApplePay retornou:', isReady);
+                    console.log('Tipo do retorno:', typeof isReady);
+                } catch (error) {
+                    console.error('❌ Erro ao chamar useApplePay:', error);
+                    console.error('Tipo do erro:', error.constructor.name);
+                    console.error('Mensagem:', error.message);
+                    console.error('Stack:', error.stack);
+                    
+                    // Verificar se é um erro específico da Tuna
+                    if (error.message && error.message.includes('ERR:')) {
+                        console.error('⚠️ Erro específico da Tuna detectado:', error.message);
+                        if (error.message.includes('ERR:18')) {
+                            console.error('ERR:18 = Elemento não encontrado no seletor');
+                            console.error('Verificando seletor novamente:', document.querySelector(selector));
+                        } else if (error.message.includes('ERR:30')) {
+                            console.error('ERR:30 = applePayCallback não é uma função');
+                        } else if (error.message.includes('ERR:44')) {
+                            console.error('ERR:44 = embeddedMode requer embedderOrigin');
+                        }
+                    }
+                    
+                    throw error;
+                } finally {
+                    // Restaurar handlers
+                    window.onerror = originalErrorHandler;
+                    window.removeEventListener('unhandledrejection', unhandledRejectionHandler);
+                }
 
                 if (isReady) {
+                    console.log('✅ useApplePay retornou true - inicializando verificação do botão...');
+                    
+                    // Configurar MutationObserver para detectar quando o botão é adicionado
+                    const observer = new MutationObserver(function(mutations) {
+                        mutations.forEach(function(mutation) {
+                            if (mutation.addedNodes.length > 0) {
+                                console.log('🔍 Mudanças detectadas no DOM!');
+                                mutation.addedNodes.forEach(function(node) {
+                                    if (node.nodeType === 1) { // Element node
+                                        console.log('Novo elemento adicionado:', node.tagName, node.className);
+                                        if (node.tagName === 'APPLE-PAY-BUTTON' || node.querySelector && node.querySelector('apple-pay-button')) {
+                                            console.log('✅ Botão Apple Pay detectado via MutationObserver!');
+                                            checkButton();
+                                        }
+                                    }
+                                });
+                            }
+                        });
+                    });
+                    
+                    observer.observe(container, {
+                        childList: true,
+                        subtree: true,
+                        attributes: false
+                    });
+                    
+                    console.log('✅ MutationObserver configurado');
+                    
                     // Verificar botão imediatamente e depois
                     function checkButton() {
                         const button = container.querySelector('apple-pay-button');
                         console.log('=== VERIFICAÇÃO DO BOTÃO ===');
-                        console.log('Container HTML (primeiros 200 chars):', container.innerHTML.substring(0, 200));
+                        console.log('Container HTML completo:', container.innerHTML);
+                        console.log('Container children:', Array.from(container.children).map(el => ({
+                            tag: el.tagName,
+                            id: el.id,
+                            class: el.className,
+                            innerHTML: el.innerHTML.substring(0, 100)
+                        })));
                         console.log('apple-pay-button encontrado?', !!button);
                         console.log('Número de filhos no container:', container.children.length);
+                        
+                        // Verificar também por qualquer elemento que possa ser o botão
+                        const allElements = container.querySelectorAll('*');
+                        console.log('Todos os elementos no container:', Array.from(allElements).map(el => el.tagName).join(', '));
                         
                         if (button) {
                             const rect = button.getBoundingClientRect();
@@ -376,6 +513,7 @@
                                 if (newRect.width > 0 && newRect.height > 0) {
                                     console.log('✅ Botão agora tem dimensões!');
                                     showStatus('✅ Botão visível!', 'success');
+                                    observer.disconnect();
                                 } else {
                                     console.error('❌ Botão ainda sem dimensões após aplicar estilos');
                                     showStatus('⚠️ Botão criado mas sem dimensões', 'error');
@@ -383,22 +521,32 @@
                             } else {
                                 console.log('✅ Botão tem dimensões corretas!');
                                 showStatus('✅ Botão visível!', 'success');
+                                observer.disconnect();
                             }
                         } else {
-                            console.error('❌ Botão não encontrado no container');
-                            console.log('Elementos no container:', Array.from(container.children).map(el => el.tagName).join(', '));
-                            showStatus('❌ Botão não foi renderizado pela Tuna', 'error');
+                            console.warn('⚠️ Botão ainda não encontrado no container');
+                            console.log('Aguardando mais tempo...');
                         }
                     }
                     
                     // Verificar várias vezes
                     checkButton();
-                    setTimeout(checkButton, 500);
-                    setTimeout(checkButton, 1000);
-                    setTimeout(checkButton, 2000);
+                    setTimeout(() => { checkButton(); }, 100);
+                    setTimeout(() => { checkButton(); }, 500);
+                    setTimeout(() => { checkButton(); }, 1000);
+                    setTimeout(() => { checkButton(); }, 2000);
+                    setTimeout(() => { 
+                        checkButton(); 
+                        observer.disconnect();
+                        if (!container.querySelector('apple-pay-button')) {
+                            console.error('❌ Botão não foi renderizado após 3 segundos');
+                            showStatus('❌ Botão não foi renderizado pela Tuna', 'error');
+                        }
+                    }, 3000);
                 } else {
                     console.error('❌ useApplePay retornou false - Apple Pay não disponível');
-                    showStatus('❌ Apple Pay não disponível', 'error');
+                    console.log('Isso pode significar que canMakePayments() retornou false internamente');
+                    showStatus('❌ Apple Pay não disponível (canMakePayments retornou false)', 'error');
                 }
 
             } catch (error) {
