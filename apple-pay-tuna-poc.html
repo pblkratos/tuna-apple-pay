@@ -105,7 +105,8 @@
             <input type="checkbox" id="useMockSession" style="width: auto;">
             <strong>Usar Session Mock</strong>
         </label>
-        <button onclick="init()">Carregar Apple Pay</button>
+        <button onclick="init()">Carregar Apple Pay (Tuna)</button>
+        <button onclick="testDirectApplePay()" style="background: #007AFF; margin-top: 10px;">Testar Apple Pay Direto (sem Tuna)</button>
     </div>
 
     <div style="height: 50px;" id="applePayButtonContainer">
@@ -188,6 +189,80 @@
             });
             const data = await res.json();
             return data.sessionId;
+        }
+
+        async function testDirectApplePay() {
+            const container = document.getElementById('applePayButtonContainer');
+            container.innerHTML = '<p>Testando Apple Pay direto...</p>';
+            showStatus('', '');
+            
+            try {
+                console.log('=== TESTE DIRETO DO APPLE PAY (SEM TUNA) ===');
+                
+                if (typeof ApplePaySession === 'undefined') {
+                    throw new Error('ApplePaySession não disponível');
+                }
+                
+                const canMakePayments = ApplePaySession.canMakePayments();
+                console.log('canMakePayments:', canMakePayments);
+                
+                if (!canMakePayments) {
+                    throw new Error('Apple Pay não está disponível');
+                }
+                
+                // Criar botão Apple Pay diretamente
+                const button = document.createElement('apple-pay-button');
+                button.setAttribute('buttonstyle', 'black');
+                button.setAttribute('type', 'plain');
+                button.setAttribute('locale', 'pt-BR');
+                
+                container.innerHTML = '';
+                container.appendChild(button);
+                
+                // Criar sessão de pagamento
+                const request = {
+                    countryCode: 'BR',
+                    currencyCode: 'BRL',
+                    supportedNetworks: ['visa', 'masterCard', 'amex'],
+                    merchantCapabilities: ['supports3DS'],
+                    total: {
+                        label: 'Teste POC',
+                        amount: '1.00'
+                    }
+                };
+                
+                const session = new ApplePaySession(3, request);
+                
+                session.onvalidatemerchant = async function(event) {
+                    console.log('onvalidatemerchant chamado');
+                    console.log('validationURL:', event.validationURL);
+                    
+                    // Para teste, vamos apenas logar
+                    showStatus('⚠️ Teste direto: precisa de validação de merchant', 'warn');
+                    console.log('⚠️ Validação de merchant necessária para completar o teste');
+                };
+                
+                session.onpaymentauthorized = function(event) {
+                    console.log('onpaymentauthorized chamado');
+                    console.log('payment:', event.payment);
+                    session.completePayment(ApplePaySession.STATUS_SUCCESS);
+                    showStatus('✅ Pagamento autorizado (teste direto)', 'success');
+                };
+                
+                // Adicionar evento de clique ao botão
+                button.addEventListener('click', function() {
+                    console.log('Botão Apple Pay clicado!');
+                    session.begin();
+                });
+                
+                console.log('✅ Botão Apple Pay criado diretamente!');
+                showStatus('✅ Botão Apple Pay direto criado! Clique para testar', 'success');
+                
+            } catch (error) {
+                console.error('Erro no teste direto:', error);
+                showStatus('❌ Erro no teste direto: ' + error.message, 'error');
+                container.innerHTML = '<p style="color: red;">Erro: ' + error.message + '</p>';
+            }
         }
 
         async function init() {
@@ -392,6 +467,39 @@
                 };
                 window.addEventListener('unhandledrejection', unhandledRejectionHandler);
 
+                // Interceptar ApplePaySession para debug
+                const originalCanMakePayments = ApplePaySession.canMakePayments;
+                const originalCanMakePaymentsWithActiveCard = ApplePaySession.canMakePaymentsWithActiveCard;
+                let canMakePaymentsCallCount = 0;
+                let canMakePaymentsResults = [];
+                
+                ApplePaySession.canMakePayments = function() {
+                    canMakePaymentsCallCount++;
+                    const result = originalCanMakePayments.apply(this, arguments);
+                    canMakePaymentsResults.push({ call: canMakePaymentsCallCount, result: result, timestamp: new Date().toISOString() });
+                    console.log(`🔍 [INTERCEPTADO] ApplePaySession.canMakePayments() chamado (#${canMakePaymentsCallCount}) - Retornou:`, result);
+                    return result;
+                };
+                
+                if (ApplePaySession.canMakePaymentsWithActiveCard) {
+                    ApplePaySession.canMakePaymentsWithActiveCard = function(merchantId) {
+                        const result = originalCanMakePaymentsWithActiveCard.apply(this, arguments);
+                        console.log(`🔍 [INTERCEPTADO] ApplePaySession.canMakePaymentsWithActiveCard(${merchantId}) - Retornou:`, result);
+                        return result;
+                    };
+                }
+                
+                // Interceptar document.querySelector para ver se a biblioteca está procurando o elemento
+                const originalQuerySelector = document.querySelector;
+                let querySelectorCalls = [];
+                document.querySelector = function(sel) {
+                    if (sel && sel.includes('applePayButtonContainer')) {
+                        querySelectorCalls.push({ selector: sel, timestamp: new Date().toISOString() });
+                        console.log(`🔍 [INTERCEPTADO] document.querySelector("${sel}") chamado pela biblioteca`);
+                    }
+                    return originalQuerySelector.apply(this, arguments);
+                };
+
                 console.log('Chamando useApplePay...');
                 console.log('Tuna object:', tuna);
                 console.log('useApplePay function:', tuna.useApplePay);
@@ -404,9 +512,26 @@
                     }
                     
                     console.log('✅ Elemento confirmado, chamando useApplePay agora...');
+                    console.log('Estado do elemento antes da chamada:', {
+                        exists: !!finalCheck,
+                        innerHTML: finalCheck.innerHTML,
+                        children: finalCheck.children.length,
+                        display: window.getComputedStyle(finalCheck).display
+                    });
+                    
                     isReady = await tuna.useApplePay(settings);
                     console.log('useApplePay retornou:', isReady);
                     console.log('Tipo do retorno:', typeof isReady);
+                    console.log('🔍 canMakePayments foi chamado', canMakePaymentsCallCount, 'vezes');
+                    console.log('🔍 Resultados de canMakePayments:', canMakePaymentsResults);
+                    console.log('🔍 querySelector foi chamado', querySelectorCalls.length, 'vezes para o container');
+                    
+                    // Restaurar funções originais
+                    ApplePaySession.canMakePayments = originalCanMakePayments;
+                    if (originalCanMakePaymentsWithActiveCard) {
+                        ApplePaySession.canMakePaymentsWithActiveCard = originalCanMakePaymentsWithActiveCard;
+                    }
+                    document.querySelector = originalQuerySelector;
                 } catch (error) {
                     console.error('❌ Erro ao chamar useApplePay:', error);
                     console.error('Tipo do erro:', error.constructor.name);
@@ -546,6 +671,35 @@
                 } else {
                     console.error('❌ useApplePay retornou false - Apple Pay não disponível');
                     console.log('Isso pode significar que canMakePayments() retornou false internamente');
+                    console.log('🔍 Análise detalhada:');
+                    console.log('  - canMakePayments foi chamado', canMakePaymentsCallCount, 'vezes pela biblioteca');
+                    console.log('  - Resultados:', canMakePaymentsResults);
+                    console.log('  - Último resultado:', canMakePaymentsResults[canMakePaymentsResults.length - 1]);
+                    console.log('  - querySelector foi chamado', querySelectorCalls.length, 'vezes');
+                    
+                    // Verificar novamente o estado atual
+                    const currentCanMakePayments = ApplePaySession.canMakePayments();
+                    console.log('  - canMakePayments atual (fora da biblioteca):', currentCanMakePayments);
+                    
+                    if (canMakePaymentsCallCount > 0) {
+                        const lastResult = canMakePaymentsResults[canMakePaymentsResults.length - 1];
+                        if (lastResult && !lastResult.result) {
+                            console.error('⚠️ PROBLEMA IDENTIFICADO: canMakePayments() retornou false quando chamado pela biblioteca Tuna');
+                            console.error('   Isso indica que a biblioteca está verificando e retornando false');
+                            console.error('   Possíveis causas:');
+                            console.error('   1. O merchantId não está configurado corretamente');
+                            console.error('   2. O dispositivo não tem cartões configurados para este merchant');
+                            console.error('   3. Há um problema de timing ou estado do Apple Pay');
+                        }
+                    } else {
+                        console.error('⚠️ PROBLEMA IDENTIFICADO: canMakePayments() NÃO foi chamado pela biblioteca');
+                        console.error('   Isso indica que a biblioteca falhou antes de verificar canMakePayments');
+                        console.error('   Possíveis causas:');
+                        console.error('   1. O elemento não foi encontrado (ERR:18)');
+                        console.error('   2. O applePayCallback não é uma função (ERR:30)');
+                        console.error('   3. Há um erro na configuração (ERR:44)');
+                    }
+                    
                     showStatus('❌ Apple Pay não disponível (canMakePayments retornou false)', 'error');
                 }
 
