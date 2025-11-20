@@ -7,7 +7,7 @@
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            max-width: 500px;
+            max-width: 600px;
             margin: 50px auto;
             padding: 20px;
         }
@@ -34,7 +34,7 @@
             margin-top: 10px;
         }
         #applePayButtonContainer {
-            min-height: 100px;
+            min-height: 60px;
             padding: 20px;
             border: 2px dashed #ddd;
             border-radius: 8px;
@@ -46,15 +46,6 @@
             width: 100% !important;
             max-width: 300px !important;
             min-height: 44px !important;
-            visibility: visible !important;
-            opacity: 1 !important;
-            position: relative !important;
-        }
-        /* Forçar visibilidade mesmo dentro de shadow DOM */
-        apple-pay-button::part(button) {
-            display: block !important;
-            width: 100% !important;
-            min-height: 44px !important;
         }
         .status {
             padding: 10px;
@@ -63,32 +54,7 @@
         }
         .success { background: #d4edda; color: #155724; }
         .error { background: #f8d7da; color: #721c24; }
-        .logs-container {
-            background: #1e1e1e;
-            color: #d4d4d4;
-            padding: 15px;
-            border-radius: 8px;
-            margin-top: 20px;
-            max-height: 400px;
-            overflow-y: auto;
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            line-height: 1.5;
-        }
-        .log-entry {
-            margin-bottom: 8px;
-            padding: 5px;
-            border-left: 3px solid transparent;
-            word-wrap: break-word;
-        }
-        .log-entry.info { border-left-color: #2196f3; }
-        .log-entry.success { border-left-color: #4caf50; }
-        .log-entry.error { border-left-color: #f44336; color: #ff6b6b; }
-        .log-entry.warn { border-left-color: #ff9800; color: #ffb74d; }
-        .log-timestamp {
-            color: #888;
-            font-size: 10px;
-        }
+        .info { background: #d1ecf1; color: #0c5460; }
     </style>
 </head>
 <body>
@@ -114,1121 +80,247 @@
             <input type="checkbox" id="useMockSession" style="width: auto;">
             <strong>Usar Session Mock</strong>
         </label>
-        <button onclick="init()">Carregar Apple Pay (Tuna)</button>
-        <button onclick="testDirectApplePay()" style="background: #007AFF; margin-top: 10px;">Testar Apple Pay Direto (sem Tuna)</button>
+        <button onclick="initApplePay()">Inicializar Apple Pay</button>
     </div>
 
-    <div style="height: 50px;" id="applePayButtonContainer">
-        <p>Aguardando...</p>
+    <div id="applePayButtonContainer">
+        <p>Aguardando inicialização...</p>
     </div>
 
     <div id="status"></div>
 
-    <div class="logs-container">
-        <div style="margin-bottom: 10px; font-weight: bold; color: #fff;">📋 Logs do Console:</div>
-        <div id="logs"></div>
-    </div>
-
     <script src="https://storage.googleapis.com/tuna-statics/tuna-v2.js"></script>
     <script>
+        // ============================================
+        // CONFIGURAÇÃO
+        // ============================================
         const MOCK_SESSION_ID = 'qHUfwPclQhcH/DjTzWZLCJZ47Sy08jUZIvLcAVlkEPLq3KyYkWJxe70HPJGzLXPnlXVMISGWzK6NQnjjHxOeGYSuiKUbzqOhy9/x80YzuL1YllgX';
+        const MERCHANT_ID = 'BCR2DN6TR7QYLIKK'; // Merchant ID da Apple
 
-        // Função para adicionar log visual
-        function addLog(message, type = 'info') {
-            const logsDiv = document.getElementById('logs');
-            const entry = document.createElement('div');
-            entry.className = 'log-entry ' + type;
-            
-            const timestamp = new Date().toLocaleTimeString();
-            const timestampSpan = document.createElement('span');
-            timestampSpan.className = 'log-timestamp';
-            timestampSpan.textContent = '[' + timestamp + '] ';
-            
-            const messageSpan = document.createElement('span');
-            messageSpan.textContent = message;
-            
-            entry.appendChild(timestampSpan);
-            entry.appendChild(messageSpan);
-            logsDiv.appendChild(entry);
-            
-            // Scroll para o final
-            logsDiv.scrollTop = logsDiv.scrollHeight;
-            
-            // Manter apenas os últimos 50 logs
-            while (logsDiv.children.length > 50) {
-                logsDiv.removeChild(logsDiv.firstChild);
-            }
-        }
-
-        // Interceptar console.log, console.error, etc.
-        const originalLog = console.log;
-        const originalError = console.error;
-        const originalWarn = console.warn;
-
-        console.log = function(...args) {
-            originalLog.apply(console, args);
-            addLog(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' '), 'info');
-        };
-
-        console.error = function(...args) {
-            originalError.apply(console, args);
-            addLog(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' '), 'error');
-        };
-
-        console.warn = function(...args) {
-            originalWarn.apply(console, args);
-            addLog(args.map(arg => typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)).join(' '), 'warn');
-        };
-
-        // Log inicial
-        addLog('✅ Sistema de logs inicializado', 'success');
-        addLog('Aguardando clique em "Carregar Apple Pay"...', 'info');
-
-        function showStatus(msg, type) {
+        // ============================================
+        // FUNÇÕES AUXILIARES
+        // ============================================
+        function showStatus(message, type = 'info') {
             const status = document.getElementById('status');
             status.className = 'status ' + type;
-            status.textContent = msg;
+            status.textContent = message;
         }
 
         async function getSessionId(apiUrl, restaurantId) {
-            const res = await fetch(`${apiUrl}/restaurant/tuna/session`, {
+            const response = await fetch(`${apiUrl}/restaurant/tuna/session`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ restaurantId: parseInt(restaurantId) })
             });
-            const data = await res.json();
+            const data = await response.json();
             return data.sessionId;
         }
 
-        async function testDirectApplePay() {
+        // ============================================
+        // INICIALIZAÇÃO DO APPLE PAY COM TUNA
+        // ============================================
+        async function initApplePay() {
             const container = document.getElementById('applePayButtonContainer');
-            container.innerHTML = '<p>Testando Apple Pay direto...</p>';
+            container.innerHTML = '<p>Inicializando...</p>';
             showStatus('', '');
-            
+
             try {
-                console.log('=== TESTE DIRETO DO APPLE PAY (SEM TUNA) ===');
-                
+                // 1. Verificar se Apple Pay está disponível
                 if (typeof ApplePaySession === 'undefined') {
-                    throw new Error('ApplePaySession não disponível');
+                    throw new Error('Apple Pay não está disponível neste navegador. Use Safari no iPhone/iPad.');
                 }
-                
-                const canMakePayments = ApplePaySession.canMakePayments();
-                console.log('canMakePayments:', canMakePayments);
-                
-                if (!canMakePayments) {
-                    throw new Error('Apple Pay não está disponível');
+
+                if (!ApplePaySession.canMakePayments()) {
+                    throw new Error('Apple Pay não está configurado neste dispositivo.');
                 }
-                
-                // Criar botão Apple Pay diretamente
+
+                // 2. Obter sessionId
+                const useMock = document.getElementById('useMockSession').checked;
+                const sessionId = useMock 
+                    ? MOCK_SESSION_ID
+                    : await getSessionId(
+                        document.getElementById('apiUrl').value,
+                        document.getElementById('restaurantId').value
+                    );
+
+                // 3. Inicializar Tuna
+                if (typeof Tuna === 'undefined') {
+                    throw new Error('Tuna SDK não foi carregado');
+                }
+
+                const environment = document.getElementById('tunaEnvironment').value;
+                const tuna = Tuna(sessionId, environment);
+
+                if (typeof tuna.useApplePay !== 'function') {
+                    throw new Error('Método useApplePay não encontrado na Tuna');
+                }
+
+                // 4. Preparar container
+                container.innerHTML = '';
+
+                // 5. Configurar Apple Pay
+                const settings = {
+                    buttom: { selector: '#applePayButtonContainer' },
+                    cart: {
+                        lineItems: [
+                            { label: 'Produto Teste', amount: 10.00 }
+                        ],
+                        total: { label: 'Total', amount: 10.00 }
+                    },
+                    merchantId: MERCHANT_ID,
+                    displayName: 'Teste POC',
+                    countryCode: 'BR',
+                    currencyCode: 'BRL',
+                    applePayCallback: async function(payment) {
+                        console.log('Pagamento recebido:', payment);
+                        showStatus('✅ Pagamento processado com sucesso!', 'success');
+                        return Promise.resolve();
+                    }
+                };
+
+                // 6. Inicializar Apple Pay via Tuna
+                const isReady = await tuna.useApplePay(settings);
+
+                if (!isReady) {
+                    throw new Error('Apple Pay não está disponível (canMakePayments retornou false)');
+                }
+
+                // 7. Verificar se o botão foi criado e corrigir visibilidade se necessário
+                setTimeout(() => {
+                    const button = container.querySelector('apple-pay-button');
+                    if (button) {
+                        // Garantir que o botão está visível
+                        button.style.cssText = 'display: inline-block !important; width: 100% !important; max-width: 300px !important; min-height: 44px !important;';
+                        showStatus('✅ Apple Pay inicializado com sucesso!', 'success');
+                    } else {
+                        // Se a Tuna não criou o botão, criar manualmente
+                        console.warn('Tuna não criou o botão, criando manualmente...');
+                        createManualApplePaySession(tuna, settings, sessionId);
+                    }
+                }, 500);
+
+            } catch (error) {
+                console.error('Erro ao inicializar Apple Pay:', error);
+                showStatus('❌ Erro: ' + error.message, 'error');
+                container.innerHTML = '<p style="color: red;">Erro: ' + error.message + '</p>';
+            }
+        }
+
+        // ============================================
+        // CRIAÇÃO MANUAL DE SESSÃO (FALLBACK)
+        // ============================================
+        async function createManualApplePaySession(tuna, settings, sessionId) {
+            try {
+                const container = document.getElementById('applePayButtonContainer');
+                container.innerHTML = '';
+
+                // Criar botão Apple Pay
                 const button = document.createElement('apple-pay-button');
                 button.setAttribute('buttonstyle', 'black');
                 button.setAttribute('type', 'plain');
                 button.setAttribute('locale', 'pt-BR');
-                
-                container.innerHTML = '';
                 container.appendChild(button);
-                
-                // Criar sessão de pagamento
+
+                // Preparar request do Apple Pay
                 const request = {
-                    countryCode: 'BR',
-                    currencyCode: 'BRL',
-                    supportedNetworks: ['visa', 'masterCard', 'amex'],
-                    merchantCapabilities: ['supports3DS'],
+                    countryCode: settings.countryCode || 'BR',
+                    currencyCode: settings.currencyCode || 'BRL',
+                    merchantIdentifier: settings.merchantId,
+                    supportedNetworks: ['visa', 'masterCard', 'amex', 'discover'],
+                    merchantCapabilities: ['supports3DS', 'supportsCredit', 'supportsDebit'],
                     total: {
-                        label: 'Teste POC',
-                        amount: '1.00'
+                        label: settings.cart.total.label || 'Total',
+                        amount: settings.cart.total.amount.toFixed(2)
+                    },
+                    lineItems: settings.cart.lineItems.map(item => ({
+                        label: item.label,
+                        amount: item.amount.toFixed(2)
+                    }))
+                };
+
+                // Criar sessão
+                const session = new ApplePaySession(3, request);
+
+                // Handler: Validação do merchant
+                session.onvalidatemerchant = async function(event) {
+                    try {
+                        // Tentar usar o método getSessionObject() da Tuna
+                        if (tuna && typeof tuna.getSessionObject === 'function') {
+                            const sessionObject = await tuna.getSessionObject();
+                            let merchantSession = sessionObject;
+                            
+                            // Ajustar formato se necessário
+                            if (sessionObject && typeof sessionObject === 'object') {
+                                merchantSession = sessionObject.merchantSession || 
+                                                 sessionObject.data || 
+                                                 sessionObject.session || 
+                                                 sessionObject;
+                            }
+                            
+                            session.completeMerchantValidation(merchantSession);
+                            return;
+                        }
+
+                        // Fallback: chamar endpoint da API (se existir)
+                        const apiUrl = document.getElementById('apiUrl').value;
+                        const restaurantId = document.getElementById('restaurantId').value;
+                        
+                        const response = await fetch(`${apiUrl}/restaurant/tuna/session/validate`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                restaurantId: parseInt(restaurantId),
+                                sessionId: sessionId,
+                                validationURL: event.validationURL
+                            })
+                        });
+
+                        if (response.ok) {
+                            const validateData = await response.json();
+                            session.completeMerchantValidation(validateData);
+                        } else {
+                            throw new Error('Endpoint de validação não disponível');
+                        }
+                    } catch (error) {
+                        console.error('Erro ao validar merchant:', error);
+                        showStatus('❌ Erro ao validar merchant. Verifique se o endpoint /restaurant/tuna/session/validate existe no backend.', 'error');
+                        session.abort();
                     }
                 };
-                
-                const session = new ApplePaySession(3, request);
-                
-                session.onvalidatemerchant = async function(event) {
-                    console.log('onvalidatemerchant chamado');
-                    console.log('validationURL:', event.validationURL);
-                    
-                    // Para teste, vamos apenas logar
-                    showStatus('⚠️ Teste direto: precisa de validação de merchant', 'warn');
-                    console.log('⚠️ Validação de merchant necessária para completar o teste');
+
+                // Handler: Pagamento autorizado
+                session.onpaymentauthorized = async function(event) {
+                    try {
+                        const callback = settings.applePayCallback;
+                        if (callback && typeof callback === 'function') {
+                            await callback(event.payment);
+                            session.completePayment(ApplePaySession.STATUS_SUCCESS);
+                            showStatus('✅ Pagamento processado com sucesso!', 'success');
+                        } else {
+                            throw new Error('Callback não disponível');
+                        }
+                    } catch (error) {
+                        console.error('Erro ao processar pagamento:', error);
+                        session.completePayment(ApplePaySession.STATUS_FAILURE);
+                        showStatus('❌ Erro ao processar pagamento: ' + error.message, 'error');
+                    }
                 };
-                
-                session.onpaymentauthorized = function(event) {
-                    console.log('onpaymentauthorized chamado');
-                    console.log('payment:', event.payment);
-                    session.completePayment(ApplePaySession.STATUS_SUCCESS);
-                    showStatus('✅ Pagamento autorizado (teste direto)', 'success');
+
+                // Handler: Cancelamento
+                session.oncancel = function() {
+                    showStatus('Pagamento cancelado pelo usuário', 'info');
                 };
-                
+
                 // Adicionar evento de clique ao botão
                 button.addEventListener('click', function() {
-                    console.log('Botão Apple Pay clicado!');
                     session.begin();
                 });
-                
-                console.log('✅ Botão Apple Pay criado diretamente!');
-                showStatus('✅ Botão Apple Pay direto criado! Clique para testar', 'success');
-                
-            } catch (error) {
-                console.error('Erro no teste direto:', error);
-                showStatus('❌ Erro no teste direto: ' + error.message, 'error');
-                container.innerHTML = '<p style="color: red;">Erro: ' + error.message + '</p>';
-            }
-        }
 
-        async function init() {
-            const container = document.getElementById('applePayButtonContainer');
-            container.innerHTML = '<p>Carregando...</p>';
-            showStatus('', '');
-            
-            // Limpar logs anteriores (manter apenas os 2 primeiros)
-            const logsDiv = document.getElementById('logs');
-            while (logsDiv.children.length > 2) {
-                logsDiv.removeChild(logsDiv.lastChild);
-            }
-
-            try {
-                console.log('=== INICIANDO PROCESSO ===');
-                
-                // 1. Verificar HTTPS
-                console.log('Verificando HTTPS...');
-                console.log('Protocol:', window.location.protocol);
-                console.log('Hostname:', window.location.hostname);
-                
-                if (window.location.protocol !== 'https:' && 
-                    window.location.hostname !== 'localhost' && 
-                    window.location.hostname !== '127.0.0.1') {
-                    throw new Error('Apple Pay requer HTTPS ou localhost');
-                }
-                console.log('✅ HTTPS/localhost verificado');
-
-                // 2. Verificar se Apple Pay está disponível no navegador
-                console.log('Verificando Apple Pay...');
-                console.log('User Agent:', navigator.userAgent);
-                
-                // Verificar se ApplePaySession existe (pode travar aqui)
-                console.log('Verificando se ApplePaySession existe...');
-                let hasApplePaySession = false;
-                try {
-                    hasApplePaySession = typeof ApplePaySession !== 'undefined';
-                    console.log('ApplePaySession disponível?', hasApplePaySession);
-                } catch (e) {
-                    console.error('Erro ao verificar ApplePaySession:', e);
-                    hasApplePaySession = false;
-                }
-                
-                if (!hasApplePaySession) {
-                    const msg = '❌ Apple Pay não está disponível neste navegador. Use Safari no iPhone.';
-                    console.error(msg);
-                    showStatus(msg, 'error');
-                    container.innerHTML = '<p style="color: red;">' + msg + '</p>';
-                    return;
-                }
-
-                // Verificar canMakePayments (pode travar aqui também)
-                console.log('Chamando ApplePaySession.canMakePayments()...');
-                let canMakePayments = false;
-                let canMakePaymentsWithMerchant = false;
-                try {
-                    canMakePayments = ApplePaySession.canMakePayments();
-                    console.log('canMakePayments() retornou:', canMakePayments);
-                    
-                    // Verificar também com merchantId (mais específico)
-                    const merchantId = 'BCR2DN6TR7QYLIKK';
-                    if (ApplePaySession.supportsVersion && ApplePaySession.supportsVersion(3)) {
-                        try {
-                            canMakePaymentsWithMerchant = ApplePaySession.canMakePaymentsWithActiveCard(merchantId);
-                            console.log('canMakePaymentsWithActiveCard() retornou:', canMakePaymentsWithMerchant);
-                        } catch (e) {
-                            console.warn('canMakePaymentsWithActiveCard não disponível ou erro:', e.message);
-                        }
-                    }
-                } catch (e) {
-                    console.error('Erro ao chamar canMakePayments:', e);
-                    throw new Error('Erro ao verificar canMakePayments: ' + e.message);
-                }
-                
-                if (!canMakePayments) {
-                    const msg = '❌ Apple Pay não está configurado neste dispositivo';
-                    console.error(msg);
-                    showStatus(msg, 'error');
-                    container.innerHTML = '<p style="color: red;">' + msg + '</p>';
-                    return;
-                }
-                console.log('✅ Apple Pay está disponível e configurado!');
-                if (canMakePaymentsWithMerchant) {
-                    console.log('✅ Apple Pay também está disponível com o merchantId específico!');
-                }
-
-                // 3. Obter sessionId
-                console.log('Obtendo sessionId...');
-                const useMock = document.getElementById('useMockSession').checked;
-                console.log('Usar mock?', useMock);
-                
-                let sessionId;
-                if (useMock) {
-                    console.log('Usando sessionId mock...');
-                    sessionId = MOCK_SESSION_ID;
-                } else {
-                    console.log('Buscando sessionId da API...');
-                    try {
-                        sessionId = await getSessionId(
-                            document.getElementById('apiUrl').value,
-                            document.getElementById('restaurantId').value
-                        );
-                        console.log('SessionId obtido da API');
-                    } catch (error) {
-                        console.error('Erro ao obter sessionId:', error);
-                        throw error;
-                    }
-                }
-                console.log('SessionId obtido:', sessionId.substring(0, 20) + '...');
-
-                // 4. Inicializar Tuna
-                console.log('Verificando se Tuna SDK está carregado...');
-                if (typeof Tuna === 'undefined') {
-                    throw new Error('Tuna SDK não carregado');
-                }
-                console.log('Tuna SDK encontrado!');
-                
-                const environment = document.getElementById('tunaEnvironment').value;
-                console.log('Inicializando Tuna com ambiente:', environment);
-                
-                let tuna;
-                try {
-                    tuna = Tuna(sessionId, environment);
-                    console.log('✅ Tuna inicializado com sucesso!');
-                } catch (error) {
-                    console.error('Erro ao inicializar Tuna:', error);
-                    throw new Error('Erro ao inicializar Tuna: ' + error.message);
-                }
-
-                console.log('Verificando se useApplePay existe...');
-                if (typeof tuna.useApplePay !== 'function') {
-                    console.error('Métodos disponíveis:', Object.keys(tuna));
-                    throw new Error('Método useApplePay não encontrado');
-                }
-                console.log('✅ useApplePay encontrado!');
-
-                // 5. Preparar container - garantir que existe e está vazio
-                console.log('Preparando container...');
-                const selector = '#applePayButtonContainer';
-                
-                // Verificar se o elemento existe no DOM
-                const containerElement = document.querySelector(selector);
-                console.log('Elemento encontrado no DOM?', !!containerElement);
-                console.log('ID do elemento:', containerElement ? containerElement.id : 'não encontrado');
-                
-                if (!containerElement) {
-                    throw new Error('Container não encontrado no DOM: ' + selector);
-                }
-                
-                // Limpar container mas manter o elemento no DOM
-                container.innerHTML = '';
-                console.log('✅ Container limpo e pronto');
-
-                // 6. Configurar e renderizar Apple Pay
-                const settings = {
-                    buttom: { selector: selector },
-                    cart: {
-                        lineItems: [{ label: 'Teste', amount: 1.00 }],
-                        total: { label: 'Total', amount: 1.00 }
-                    },
-                    merchantId: 'BCR2DN6TR7QYLIKK',
-                    displayName: 'Teste POC',
-                    countryCode: 'BR',
-                    currencyCode: 'BRL',
-                    applePayCallback: function(payload) {
-                        console.log('Pagamento:', payload);
-                        showStatus('✅ Pagamento processado!', 'success');
-                        return Promise.resolve();
-                    }
-                };
-                
-                // Guardar settings e tuna para uso posterior (criação manual de sessão)
-                window._tunaSettings = settings;
-                window._tunaInstance = tuna;
-                window._tunaSessionId = sessionId;
-
-                console.log('Settings configurados:', JSON.stringify(settings, null, 2));
-                console.log('Verificando elemento novamente antes de chamar useApplePay...');
-                const elementCheck = document.querySelector(selector);
-                console.log('Elemento ainda existe?', !!elementCheck);
-                console.log('Elemento visível?', elementCheck ? window.getComputedStyle(elementCheck).display !== 'none' : false);
-                
-                if (!elementCheck) {
-                    throw new Error('Elemento desapareceu do DOM antes de chamar useApplePay');
-                }
-
-                // Adicionar handler global de erros não capturados
-                const originalErrorHandler = window.onerror;
-                window.onerror = function(msg, url, line, col, error) {
-                    console.error('❌ ERRO GLOBAL CAPTURADO:', msg);
-                    console.error('URL:', url, 'Linha:', line, 'Col:', col);
-                    if (error) {
-                        console.error('Erro completo:', error);
-                    }
-                    if (originalErrorHandler) {
-                        originalErrorHandler.apply(window, arguments);
-                    }
-                };
-
-                // Adicionar handler para promises rejeitadas
-                const unhandledRejectionHandler = function(event) {
-                    console.error('❌ PROMISE REJEITADA NÃO TRATADA:', event.reason);
-                    if (event.reason) {
-                        console.error('Razão:', event.reason);
-                        console.error('Stack:', event.reason.stack);
-                    }
-                };
-                window.addEventListener('unhandledrejection', unhandledRejectionHandler);
-
-                // Interceptar ApplePaySession para debug
-                const originalCanMakePayments = ApplePaySession.canMakePayments;
-                const originalCanMakePaymentsWithActiveCard = ApplePaySession.canMakePaymentsWithActiveCard;
-                let canMakePaymentsCallCount = 0;
-                let canMakePaymentsResults = [];
-                let applePaySessions = [];
-                
-                // Interceptar o construtor do ApplePaySession
-                const OriginalApplePaySession = window.ApplePaySession;
-                window.ApplePaySession = function(version, request) {
-                    console.log('🔍 [INTERCEPTADO] ApplePaySession criado!');
-                    console.log('  Versão:', version);
-                    console.log('  Request:', request);
-                    
-                    const session = new OriginalApplePaySession(version, request);
-                    applePaySessions.push({ session, version, request, timestamp: new Date().toISOString() });
-                    
-                    // Interceptar métodos importantes
-                    const originalBegin = session.begin;
-                    const originalAbort = session.abort;
-                    const originalCompletePayment = session.completePayment;
-                    
-                    session.begin = function() {
-                        console.log('🔍 [INTERCEPTADO] session.begin() chamado!');
-                        console.log('  Session:', session);
-                        console.log('  Handlers configurados:');
-                        console.log('    - onvalidatemerchant:', typeof session.onvalidatemerchant);
-                        console.log('    - onpaymentauthorized:', typeof session.onpaymentauthorized);
-                        console.log('    - oncancel:', typeof session.oncancel);
-                        return originalBegin.apply(this, arguments);
-                    };
-                    
-                    session.abort = function() {
-                        console.log('🔍 [INTERCEPTADO] session.abort() chamado!');
-                        return originalAbort.apply(this, arguments);
-                    };
-                    
-                    session.completePayment = function(status) {
-                        console.log('🔍 [INTERCEPTADO] session.completePayment() chamado com status:', status);
-                        return originalCompletePayment.apply(this, arguments);
-                    };
-                    
-                    // Interceptar setters de event handlers
-                    let originalOnValidateMerchant = null;
-                    let originalOnPaymentAuthorized = null;
-                    
-                    Object.defineProperty(session, 'onvalidatemerchant', {
-                        get: function() { return originalOnValidateMerchant; },
-                        set: function(fn) {
-                            console.log('🔍 [INTERCEPTADO] onvalidatemerchant definido:', typeof fn);
-                            originalOnValidateMerchant = fn;
-                            if (fn) {
-                                session.onvalidatemerchant = function(event) {
-                                    console.log('🔍 [INTERCEPTADO] onvalidatemerchant disparado!');
-                                    console.log('  validationURL:', event.validationURL);
-                                    return fn.apply(this, arguments);
-                                };
-                            }
-                        }
-                    });
-                    
-                    Object.defineProperty(session, 'onpaymentauthorized', {
-                        get: function() { return originalOnPaymentAuthorized; },
-                        set: function(fn) {
-                            console.log('🔍 [INTERCEPTADO] onpaymentauthorized definido:', typeof fn);
-                            originalOnPaymentAuthorized = fn;
-                            if (fn) {
-                                session.onpaymentauthorized = function(event) {
-                                    console.log('🔍 [INTERCEPTADO] onpaymentauthorized disparado!');
-                                    console.log('  payment:', event.payment);
-                                    return fn.apply(this, arguments);
-                                };
-                            }
-                        }
-                    });
-                    
-                    return session;
-                };
-                
-                // Copiar propriedades estáticas
-                Object.setPrototypeOf(window.ApplePaySession, OriginalApplePaySession);
-                Object.getOwnPropertyNames(OriginalApplePaySession).forEach(name => {
-                    if (name !== 'prototype' && name !== 'length' && name !== 'name') {
-                        try {
-                            window.ApplePaySession[name] = OriginalApplePaySession[name];
-                        } catch (e) {
-                            console.warn('Não foi possível copiar propriedade:', name);
-                        }
-                    }
-                });
-                window.ApplePaySession.prototype = OriginalApplePaySession.prototype;
-                
-                ApplePaySession.canMakePayments = function() {
-                    canMakePaymentsCallCount++;
-                    const result = originalCanMakePayments.apply(this, arguments);
-                    canMakePaymentsResults.push({ call: canMakePaymentsCallCount, result: result, timestamp: new Date().toISOString() });
-                    console.log(`🔍 [INTERCEPTADO] ApplePaySession.canMakePayments() chamado (#${canMakePaymentsCallCount}) - Retornou:`, result);
-                    return result;
-                };
-                
-                if (ApplePaySession.canMakePaymentsWithActiveCard) {
-                    ApplePaySession.canMakePaymentsWithActiveCard = function(merchantId) {
-                        const result = originalCanMakePaymentsWithActiveCard.apply(this, arguments);
-                        console.log(`🔍 [INTERCEPTADO] ApplePaySession.canMakePaymentsWithActiveCard(${merchantId}) - Retornou:`, result);
-                        return result;
-                    };
-                }
-                
-                // Interceptar document.querySelector para ver se a biblioteca está procurando o elemento
-                const originalQuerySelector = document.querySelector;
-                let querySelectorCalls = [];
-                document.querySelector = function(sel) {
-                    if (sel && sel.includes('applePayButtonContainer')) {
-                        querySelectorCalls.push({ selector: sel, timestamp: new Date().toISOString() });
-                        console.log(`🔍 [INTERCEPTADO] document.querySelector("${sel}") chamado pela biblioteca`);
-                    }
-                    return originalQuerySelector.apply(this, arguments);
-                };
-
-                console.log('Chamando useApplePay...');
-                console.log('Tuna object:', tuna);
-                console.log('useApplePay function:', tuna.useApplePay);
-                let isReady;
-                try {
-                    // Verificar se o elemento ainda existe no momento exato da chamada
-                    const finalCheck = document.querySelector(selector);
-                    if (!finalCheck) {
-                        throw new Error('Elemento não encontrado no momento exato da chamada');
-                    }
-                    
-                    console.log('✅ Elemento confirmado, chamando useApplePay agora...');
-                    console.log('Estado do elemento antes da chamada:', {
-                        exists: !!finalCheck,
-                        innerHTML: finalCheck.innerHTML,
-                        children: finalCheck.children.length,
-                        display: window.getComputedStyle(finalCheck).display
-                    });
-                    
-                    isReady = await tuna.useApplePay(settings);
-                    console.log('useApplePay retornou:', isReady);
-                    console.log('Tipo do retorno:', typeof isReady);
-                    console.log('🔍 canMakePayments foi chamado', canMakePaymentsCallCount, 'vezes');
-                    console.log('🔍 Resultados de canMakePayments:', canMakePaymentsResults);
-                    console.log('🔍 querySelector foi chamado', querySelectorCalls.length, 'vezes para o container');
-                    
-                    console.log('🔍 Sessões ApplePaySession criadas:', applePaySessions.length);
-                    applePaySessions.forEach((s, i) => {
-                        console.log(`  Sessão ${i + 1}:`, {
-                            version: s.version,
-                            merchantId: s.request.merchantIdentifier,
-                            timestamp: s.timestamp
-                        });
-                    });
-                    
-                    // Restaurar funções originais
-                    window.ApplePaySession = OriginalApplePaySession;
-                    ApplePaySession.canMakePayments = originalCanMakePayments;
-                    if (originalCanMakePaymentsWithActiveCard) {
-                        ApplePaySession.canMakePaymentsWithActiveCard = originalCanMakePaymentsWithActiveCard;
-                    }
-                    document.querySelector = originalQuerySelector;
-                } catch (error) {
-                    console.error('❌ Erro ao chamar useApplePay:', error);
-                    console.error('Tipo do erro:', error.constructor.name);
-                    console.error('Mensagem:', error.message);
-                    console.error('Stack:', error.stack);
-                    
-                    // Verificar se é um erro específico da Tuna
-                    if (error.message && error.message.includes('ERR:')) {
-                        console.error('⚠️ Erro específico da Tuna detectado:', error.message);
-                        if (error.message.includes('ERR:18')) {
-                            console.error('ERR:18 = Elemento não encontrado no seletor');
-                            console.error('Verificando seletor novamente:', document.querySelector(selector));
-                        } else if (error.message.includes('ERR:30')) {
-                            console.error('ERR:30 = applePayCallback não é uma função');
-                        } else if (error.message.includes('ERR:44')) {
-                            console.error('ERR:44 = embeddedMode requer embedderOrigin');
-                        }
-                    }
-                    
-                    // Restaurar funções originais em caso de erro
-                    window.ApplePaySession = OriginalApplePaySession;
-                    ApplePaySession.canMakePayments = originalCanMakePayments;
-                    if (originalCanMakePaymentsWithActiveCard) {
-                        ApplePaySession.canMakePaymentsWithActiveCard = originalCanMakePaymentsWithActiveCard;
-                    }
-                    document.querySelector = originalQuerySelector;
-                    
-                    throw error;
-                } finally {
-                    // Restaurar handlers
-                    window.onerror = originalErrorHandler;
-                    window.removeEventListener('unhandledrejection', unhandledRejectionHandler);
-                }
-
-                if (isReady) {
-                    console.log('✅ useApplePay retornou true - inicializando verificação do botão...');
-                    
-                    // Configurar MutationObserver para detectar quando o botão é adicionado
-                    const observer = new MutationObserver(function(mutations) {
-                        mutations.forEach(function(mutation) {
-                            if (mutation.addedNodes.length > 0) {
-                                console.log('🔍 Mudanças detectadas no DOM!');
-                                mutation.addedNodes.forEach(function(node) {
-                                    if (node.nodeType === 1) { // Element node
-                                        console.log('Novo elemento adicionado:', node.tagName, node.className);
-                                        if (node.tagName === 'APPLE-PAY-BUTTON' || node.querySelector && node.querySelector('apple-pay-button')) {
-                                            console.log('✅ Botão Apple Pay detectado via MutationObserver!');
-                                            checkButton();
-                                        }
-                                    }
-                                });
-                            }
-                        });
-                    });
-                    
-                    observer.observe(container, {
-                        childList: true,
-                        subtree: true,
-                        attributes: false
-                    });
-                    
-                    console.log('✅ MutationObserver configurado');
-                    
-                    // Verificar botão imediatamente e depois
-                    function checkButton() {
-                        const button = container.querySelector('apple-pay-button');
-                        console.log('=== VERIFICAÇÃO DO BOTÃO ===');
-                        console.log('Container HTML completo:', container.innerHTML);
-                        console.log('Container children:', Array.from(container.children).map(el => ({
-                            tag: el.tagName,
-                            id: el.id,
-                            class: el.className,
-                            innerHTML: el.innerHTML.substring(0, 100)
-                        })));
-                        console.log('apple-pay-button encontrado?', !!button);
-                        console.log('Número de filhos no container:', container.children.length);
-                        
-                        // Verificar também por qualquer elemento que possa ser o botão
-                        const allElements = container.querySelectorAll('*');
-                        console.log('Todos os elementos no container:', Array.from(allElements).map(el => el.tagName).join(', '));
-                        
-                        if (button) {
-                            const rect = button.getBoundingClientRect();
-                            const style = window.getComputedStyle(button);
-                            console.log('Dimensões:', rect.width + 'px x ' + rect.height + 'px');
-                            console.log('Display:', style.display);
-                            console.log('Visibility:', style.visibility);
-                            console.log('Opacity:', style.opacity);
-                            console.log('Position:', style.position);
-                            
-                            // SEMPRE forçar visibilidade, mesmo que tenha dimensões
-                            console.log('🔧 Forçando visibilidade do botão...');
-                            button.style.cssText = 'display: inline-block !important; visibility: visible !important; width: 100% !important; max-width: 300px !important; min-height: 44px !important; opacity: 1 !important; position: relative !important;';
-                            
-                            // Verificar shadow DOM
-                            if (button.shadowRoot) {
-                                console.log('✅ Shadow DOM encontrado!');
-                                const shadowButton = button.shadowRoot.querySelector('button');
-                                if (shadowButton) {
-                                    console.log('✅ Botão dentro do shadow DOM encontrado!');
-                                    shadowButton.style.cssText = 'display: block !important; width: 100% !important; min-height: 44px !important;';
-                                } else {
-                                    console.warn('⚠️ Botão não encontrado dentro do shadow DOM');
-                                }
-                            } else {
-                                console.log('ℹ️ Shadow DOM não encontrado (pode ser normal)');
-                            }
-                            
-                            // Interceptar evento de click para debug
-                            button.addEventListener('click', function(e) {
-                                console.log('🔍 [CLICK INTERCEPTADO] Botão clicado!');
-                                console.log('Event:', e);
-                                console.log('Target:', e.target);
-                                console.log('CurrentTarget:', e.currentTarget);
-                                
-                                // Verificar se há uma sessão do Apple Pay ativa
-                                console.log('Verificando se há sessão Apple Pay ativa...');
-                                console.log('Sessões criadas:', applePaySessions.length);
-                                
-                                // Verificar se alguma sessão precisa ser iniciada
-                                applePaySessions.forEach((s, i) => {
-                                    console.log(`  Sessão ${i + 1}:`, {
-                                        session: s.session,
-                                        hasBegin: typeof s.session.begin === 'function',
-                                        handlers: {
-                                            onvalidatemerchant: typeof s.session.onvalidatemerchant,
-                                            onpaymentauthorized: typeof s.session.onpaymentauthorized
-                                        }
-                                    });
-                                });
-                                
-                                // Se não houver sessões ou handlers não configurados, criar manualmente
-                                if (applePaySessions.length === 0) {
-                                    console.error('⚠️ PROBLEMA: Nenhuma sessão ApplePaySession foi criada pela Tuna!');
-                                    console.error('   Criando sessão manualmente...');
-                                    
-                                    // Criar sessão manualmente
-                                    createManualApplePaySession();
-                                } else {
-                                    const lastSession = applePaySessions[applePaySessions.length - 1].session;
-                                    if (!lastSession.onvalidatemerchant || !lastSession.onpaymentauthorized) {
-                                        console.error('⚠️ PROBLEMA: Sessão criada mas handlers não configurados!');
-                                        console.error('   Criando nova sessão manualmente...');
-                                        
-                                        // Criar sessão manualmente
-                                        createManualApplePaySession();
-                                    } else {
-                                        console.log('✅ Sessão parece estar configurada corretamente');
-                                        console.log('   Se o popup não abrir, pode ser que session.begin() não esteja sendo chamado');
-                                        
-                                        // Mesmo assim, tentar iniciar a sessão se não foi iniciada
-                                        try {
-                                            lastSession.begin();
-                                            console.log('✅ session.begin() chamado manualmente!');
-                                        } catch (beginError) {
-                                            console.error('Erro ao chamar begin():', beginError);
-                                            // Se falhar, criar nova sessão
-                                            createManualApplePaySession();
-                                        }
-                                    }
-                                }
-                                
-                                // Não prevenir o comportamento padrão, apenas logar
-                            }, { capture: true });
-                            
-                            // Função para criar sessão Apple Pay manualmente
-                            function createManualApplePaySession() {
-                                try {
-                                    const settings = window._tunaSettings;
-                                    if (!settings) {
-                                        console.error('❌ Settings não disponíveis para criar sessão manual');
-                                        return;
-                                    }
-                                    
-                                    console.log('🔧 Criando sessão Apple Pay manualmente...');
-                                    
-                                    // Preparar request do Apple Pay
-                                    const request = {
-                                        countryCode: settings.countryCode || 'BR',
-                                        currencyCode: settings.currencyCode || 'BRL',
-                                        merchantIdentifier: settings.merchantId || 'BCR2DN6TR7QYLIKK', // IMPORTANTE: merchantId é obrigatório
-                                        supportedNetworks: ['visa', 'masterCard', 'amex', 'discover'],
-                                        merchantCapabilities: ['supports3DS', 'supportsCredit', 'supportsDebit'],
-                                        total: {
-                                            label: settings.cart.total.label || 'Total',
-                                            amount: settings.cart.total.amount.toFixed(2)
-                                        },
-                                        lineItems: settings.cart.lineItems.map(item => ({
-                                            label: item.label,
-                                            amount: item.amount.toFixed(2)
-                                        }))
-                                    };
-                                    
-                                    console.log('Request configurado:', JSON.stringify(request, null, 2));
-                                    console.log('MerchantId:', request.merchantIdentifier);
-                                    
-                                    // Criar sessão
-                                    let session;
-                                    try {
-                                        session = new ApplePaySession(3, request);
-                                        console.log('✅ ApplePaySession criada com sucesso');
-                                    } catch (sessionError) {
-                                        console.error('❌ Erro ao criar ApplePaySession:', sessionError);
-                                        throw new Error('Não foi possível criar ApplePaySession: ' + sessionError.message);
-                                    }
-                                    
-                                    // Guardar sessão para debug
-                                    window._manualApplePaySession = session;
-                                    session._validationCalled = false;
-                                    
-                                    // Configurar handlers ANTES de chamar begin()
-                                    session.onvalidatemerchant = async function(event) {
-                                        session._validationCalled = true;
-                                        console.log('🔍 [MANUAL] onvalidatemerchant chamado!');
-                                        console.log('validationURL:', event.validationURL);
-                                        console.log('Timestamp:', new Date().toISOString());
-                                        
-                                        // Não abortar imediatamente se houver erro - tentar alternativas primeiro
-                                        console.log('🔍 [MANUAL] onvalidatemerchant chamado');
-                                        console.log('validationURL:', event.validationURL);
-                                        
-                                        try {
-                                            console.log('🔍 Tentando usar método getSessionObject() da Tuna...');
-                                            
-                                            // Primeiro, tentar usar o método getSessionObject() da Tuna
-                                            // que é o método que a própria Tuna usa internamente
-                                            const tuna = window._tunaInstance;
-                                            if (tuna && typeof tuna.getSessionObject === 'function') {
-                                                console.log('✅ Método getSessionObject() encontrado na Tuna!');
-                                                console.log('Chamando com validationURL:', event.validationURL);
-                                                try {
-                                                    // Tentar chamar com e sem parâmetro
-                                                    let sessionObject;
-                                                    try {
-                                                        // Primeiro tentar com validationURL como parâmetro
-                                                        sessionObject = await tuna.getSessionObject(event.validationURL);
-                                                        console.log('✅ getSessionObject(validationURL) retornou:', sessionObject);
-                                                    } catch (e1) {
-                                                        console.log('Tentando sem parâmetro...');
-                                                        // Se falhar, tentar sem parâmetro (como a Tuna faz internamente)
-                                                        sessionObject = await tuna.getSessionObject();
-                                                        console.log('✅ getSessionObject() retornou:', sessionObject);
-                                                    }
-                                                    
-                                                    // O objeto retornado deve ser usado diretamente no completeMerchantValidation
-                                                    // Mas pode precisar ser ajustado dependendo do formato
-                                                    let merchantSession = sessionObject;
-                                                    
-                                                    // Se for um objeto com propriedade data ou merchantSession
-                                                    if (sessionObject && typeof sessionObject === 'object') {
-                                                        if (sessionObject.merchantSession) {
-                                                            merchantSession = sessionObject.merchantSession;
-                                                        } else if (sessionObject.data) {
-                                                            merchantSession = sessionObject.data;
-                                                        } else if (sessionObject.session) {
-                                                            merchantSession = sessionObject.session;
-                                                        }
-                                                    }
-                                                    
-                                                    console.log('Usando merchantSession:', merchantSession);
-                                                    session.completeMerchantValidation(merchantSession);
-                                                    console.log('✅ completeMerchantValidation chamado com sucesso usando getSessionObject()!');
-                                                    return; // Sucesso, sair da função
-                                                } catch (tunaError) {
-                                                    console.warn('⚠️ Erro ao usar getSessionObject():', tunaError);
-                                                    console.log('Tentando método alternativo...');
-                                                }
-                                            } else {
-                                                console.log('⚠️ Método getSessionObject() não encontrado na Tuna');
-                                                console.log('Métodos disponíveis:', tuna ? Object.keys(tuna) : 'Tuna não disponível');
-                                            }
-                                            
-                                            // Fallback: tentar endpoint da API
-                                            const apiUrl = document.getElementById('apiUrl').value;
-                                            const restaurantId = document.getElementById('restaurantId').value;
-                                            const sessionId = window._tunaSessionId;
-                                            
-                                            console.log('Validando merchant via API...');
-                                            console.log('SessionId:', sessionId);
-                                            
-                                            // Chamar endpoint que valida o merchant usando a Tuna
-                                            // Se não existir, vamos tentar usar a API da Tuna diretamente
-                                            const validateRes = await fetch(`${apiUrl}/restaurant/tuna/session/validate`, {
-                                                method: 'POST',
-                                                headers: { 'Content-Type': 'application/json' },
-                                                body: JSON.stringify({
-                                                    restaurantId: parseInt(restaurantId),
-                                                    sessionId: sessionId,
-                                                    validationURL: event.validationURL
-                                                })
-                                            });
-                                            
-                                            if (!validateRes.ok) {
-                                                const errorText = await validateRes.text();
-                                                console.warn('Endpoint retornou erro:', validateRes.status, errorText);
-                                                
-                                                // Se o endpoint não existir (404), vamos tentar usar a Tuna SDK diretamente
-                                                if (validateRes.status === 404) {
-                                                    console.warn('Endpoint não encontrado (404), tentando alternativas...');
-                                                    
-                                                    // Verificar se a Tuna tem métodos para validar merchant
-                                                    const tuna = window._tunaInstance;
-                                                    if (tuna) {
-                                                        console.log('Métodos disponíveis na Tuna:', Object.keys(tuna));
-                                                        
-                                                        // Tentar métodos comuns
-                                                        if (typeof tuna.validateMerchant === 'function') {
-                                                            console.log('Tentando usar tuna.validateMerchant()...');
-                                                            try {
-                                                                const validation = await tuna.validateMerchant(event.validationURL);
-                                                                session.completeMerchantValidation(validation);
-                                                                return;
-                                                            } catch (e) {
-                                                                console.error('Erro ao usar tuna.validateMerchant:', e);
-                                                            }
-                                                        }
-                                                        
-                                                        if (typeof tuna.applePayValidateMerchant === 'function') {
-                                                            console.log('Tentando usar tuna.applePayValidateMerchant()...');
-                                                            try {
-                                                                const validation = await tuna.applePayValidateMerchant(event.validationURL);
-                                                                session.completeMerchantValidation(validation);
-                                                                return;
-                                                            } catch (e) {
-                                                                console.error('Erro ao usar tuna.applePayValidateMerchant:', e);
-                                                            }
-                                                        }
-                                                        
-                                                        // Tentar usar o sessionId para fazer a validação via API da Tuna
-                                                        console.log('Tentando validação via API da Tuna diretamente...');
-                                                        try {
-                                                            const tunaApiUrl = 'https://api.tuna.uy'; // Ajustar conforme necessário
-                                                            const sessionId = window._tunaSessionId;
-                                                            const env = document.getElementById('tunaEnvironment').value;
-                                                            
-                                                            // Tentar endpoint genérico da Tuna
-                                                            const tunaValidateRes = await fetch(`${tunaApiUrl}/v1/apple-pay/validate-merchant`, {
-                                                                method: 'POST',
-                                                                headers: { 'Content-Type': 'application/json' },
-                                                                body: JSON.stringify({
-                                                                    sessionId: sessionId,
-                                                                    validationURL: event.validationURL,
-                                                                    environment: env
-                                                                })
-                                                            });
-                                                            
-                                                            if (tunaValidateRes.ok) {
-                                                                const tunaValidateData = await tunaValidateRes.json();
-                                                                console.log('✅ Validação via API da Tuna bem-sucedida!');
-                                                                session.completeMerchantValidation(tunaValidateData);
-                                                                return;
-                                                            }
-                                                        } catch (tunaApiError) {
-                                                            console.warn('Erro ao tentar API da Tuna:', tunaApiError);
-                                                        }
-                                                    }
-                                                    
-                                                    throw new Error('Endpoint não disponível e nenhuma alternativa funcionou. É necessário criar o endpoint /restaurant/tuna/session/validate no backend.');
-                                                } else {
-                                                    throw new Error(`Erro ao validar merchant: ${validateRes.status} - ${errorText}`);
-                                                }
-                                            }
-                                            
-                                            const validateData = await validateRes.json();
-                                            console.log('✅ Merchant validado com sucesso:', validateData);
-                                            
-                                            // A resposta deve ser o merchant session que a Apple espera
-                                            // Pode ser um objeto ou uma string JSON
-                                            let merchantSession = validateData;
-                                            if (typeof validateData === 'string') {
-                                                try {
-                                                    merchantSession = JSON.parse(validateData);
-                                                } catch (e) {
-                                                    merchantSession = validateData;
-                                                }
-                                            }
-                                            
-                                            console.log('Chamando completeMerchantValidation com:', merchantSession);
-                                            session.completeMerchantValidation(merchantSession);
-                                            console.log('✅ completeMerchantValidation chamado com sucesso!');
-                                        } catch (error) {
-                                            console.error('❌ Erro ao validar merchant:', error);
-                                            console.error('Tipo:', error.constructor.name);
-                                            console.error('Mensagem:', error.message);
-                                            console.error('');
-                                            console.error('⚠️ IMPORTANTE: É necessário criar um endpoint no backend para validar o merchant do Apple Pay');
-                                            console.error('   O endpoint deve receber validationURL e retornar o merchant session');
-                                            console.error('   Exemplo: POST /restaurant/tuna/session/validate');
-                                            console.error('   Body: { restaurantId, sessionId, validationURL }');
-                                            console.error('   Response: { merchantSession: "..." } ou objeto com merchant session');
-                                            console.error('');
-                                            console.error('   A validação do merchant é obrigatória para o Apple Pay funcionar.');
-                                            console.error('   Sem ela, o popup aparece e some rapidamente.');
-                                            
-                                            showStatus('❌ Validação de merchant falhou - É necessário criar endpoint /restaurant/tuna/session/validate no backend', 'error');
-                                            
-                                            // Abortar sessão após um pequeno delay para o usuário ver a mensagem
-                                            setTimeout(() => {
-                                                console.log('Abortando sessão devido a erro na validação...');
-                                                session.abort();
-                                            }, 2000);
-                                        }
-                                    };
-                                    
-                                    session.onpaymentauthorized = async function(event) {
-                                        console.log('🔍 [MANUAL] onpaymentauthorized chamado');
-                                        console.log('payment:', event.payment);
-                                        
-                                        try {
-                                            // Chamar o callback da Tuna
-                                            const callback = settings.applePayCallback;
-                                            if (callback && typeof callback === 'function') {
-                                                await callback(event.payment);
-                                                session.completePayment(ApplePaySession.STATUS_SUCCESS);
-                                                showStatus('✅ Pagamento processado com sucesso!', 'success');
-                                            } else {
-                                                throw new Error('Callback não disponível');
-                                            }
-                                        } catch (error) {
-                                            console.error('Erro ao processar pagamento:', error);
-                                            session.completePayment(ApplePaySession.STATUS_FAILURE);
-                                            showStatus('❌ Erro ao processar pagamento: ' + error.message, 'error');
-                                        }
-                                    };
-                                    
-                                    session.oncancel = function() {
-                                        console.log('🔍 [MANUAL] Sessão cancelada pelo usuário');
-                                        showStatus('Pagamento cancelado', 'warn');
-                                    };
-                                    
-                                    // Adicionar handler de erro (se disponível)
-                                    if (session.onerror) {
-                                        session.onerror = function(event) {
-                                            console.error('🔍 [MANUAL] Erro na sessão:', event);
-                                            showStatus('❌ Erro na sessão Apple Pay', 'error');
-                                        };
-                                    }
-                                    
-                                    // Verificar se os handlers estão configurados antes de iniciar
-                                    console.log('Verificando handlers antes de iniciar:');
-                                    console.log('  - onvalidatemerchant:', typeof session.onvalidatemerchant);
-                                    console.log('  - onpaymentauthorized:', typeof session.onpaymentauthorized);
-                                    console.log('  - oncancel:', typeof session.oncancel);
-                                    
-                                    if (typeof session.onvalidatemerchant !== 'function') {
-                                        throw new Error('onvalidatemerchant não está configurado');
-                                    }
-                                    
-                                    // Iniciar sessão com tratamento de erro
-                                    console.log('✅ Sessão criada manualmente, iniciando...');
-                                    console.log('Request usado:', request);
-                                    
-                                    try {
-                                        session.begin();
-                                        console.log('✅ session.begin() chamado com sucesso!');
-                                        showStatus('✅ Sessão Apple Pay iniciada! Aguardando validação...', 'success');
-                                        
-                                        // Adicionar timeout para detectar se a validação não é chamada
-                                        setTimeout(() => {
-                                            if (!session._validationCalled) {
-                                                console.warn('⚠️ onvalidatemerchant não foi chamado após 2 segundos');
-                                                console.warn('   Isso pode indicar que a validação falhou silenciosamente');
-                                            }
-                                        }, 2000);
-                                        
-                                    } catch (beginError) {
-                                        console.error('❌ Erro ao chamar session.begin():', beginError);
-                                        console.error('Tipo do erro:', beginError.constructor.name);
-                                        console.error('Mensagem:', beginError.message);
-                                        console.error('Stack:', beginError.stack);
-                                        
-                                        // Verificar se é um erro específico do Apple Pay
-                                        if (beginError.message && beginError.message.includes('merchant')) {
-                                            showStatus('❌ Erro: Merchant não configurado corretamente', 'error');
-                                        } else if (beginError.message && beginError.message.includes('request')) {
-                                            showStatus('❌ Erro: Request do Apple Pay inválido', 'error');
-                                        } else {
-                                            showStatus('❌ Erro ao iniciar sessão: ' + beginError.message, 'error');
-                                        }
-                                        
-                                        throw beginError;
-                                    }
-                                    
-                                } catch (error) {
-                                    console.error('❌ Erro ao criar sessão manual:', error);
-                                    console.error('Tipo:', error.constructor.name);
-                                    console.error('Mensagem:', error.message);
-                                    console.error('Stack:', error.stack);
-                                    
-                                    // Mostrar erro mais detalhado
-                                    let errorMsg = error.message || 'Erro desconhecido';
-                                    if (error.stack) {
-                                        console.error('Stack completo:', error.stack);
-                                    }
-                                    
-                                    showStatus('❌ Erro ao criar sessão: ' + errorMsg, 'error');
-                                }
-                            }
-                            
-                            // Adicionar listener também no container para capturar qualquer click
-                            container.addEventListener('click', function(e) {
-                                console.log('🔍 [CLICK NO CONTAINER] Detectado!');
-                                console.log('Target:', e.target);
-                                console.log('Path:', e.composedPath());
-                            }, { capture: true });
-                            
-                            const newRect = button.getBoundingClientRect();
-                            console.log('Nova verificação - Dimensões:', newRect.width + 'px x ' + newRect.height + 'px');
-                            if (newRect.width > 0 && newRect.height > 0) {
-                                console.log('✅ Botão agora tem dimensões e está visível!');
-                                showStatus('✅ Botão visível! Clique para testar', 'success');
-                                observer.disconnect();
-                            } else {
-                                console.warn('⚠️ Botão ainda sem dimensões após aplicar estilos');
-                                console.warn('Tentando método alternativo...');
-                                
-                                // Método alternativo: criar um wrapper visível
-                                const wrapper = document.createElement('div');
-                                wrapper.style.cssText = 'display: block; width: 100%; max-width: 300px; min-height: 44px; position: relative; background: rgba(0,0,0,0.1); border: 2px solid #007AFF; border-radius: 4px;';
-                                wrapper.innerHTML = '<div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 1;">';
-                                
-                                // Mover o botão para dentro do wrapper
-                                button.parentNode.insertBefore(wrapper, button);
-                                wrapper.appendChild(button);
-                                button.style.cssText = 'display: block !important; width: 100% !important; height: 100% !important; position: absolute !important; top: 0 !important; left: 0 !important; opacity: 1 !important; z-index: 2 !important;';
-                                
-                                showStatus('⚠️ Botão criado mas sem dimensões - wrapper adicionado', 'warn');
-                            }
-                        } else {
-                            console.warn('⚠️ Botão ainda não encontrado no container');
-                            console.log('Aguardando mais tempo...');
-                        }
-                    }
-                    
-                    // Verificar várias vezes
-                    checkButton();
-                    setTimeout(() => { checkButton(); }, 100);
-                    setTimeout(() => { checkButton(); }, 500);
-                    setTimeout(() => { checkButton(); }, 1000);
-                    setTimeout(() => { checkButton(); }, 2000);
-                    setTimeout(() => { 
-                        checkButton(); 
-                        observer.disconnect();
-                        if (!container.querySelector('apple-pay-button')) {
-                            console.error('❌ Botão não foi renderizado após 3 segundos');
-                            showStatus('❌ Botão não foi renderizado pela Tuna', 'error');
-                        }
-                    }, 3000);
-                } else {
-                    console.error('❌ useApplePay retornou false - Apple Pay não disponível');
-                    console.log('Isso pode significar que canMakePayments() retornou false internamente');
-                    console.log('🔍 Análise detalhada:');
-                    console.log('  - canMakePayments foi chamado', canMakePaymentsCallCount, 'vezes pela biblioteca');
-                    console.log('  - Resultados:', canMakePaymentsResults);
-                    console.log('  - Último resultado:', canMakePaymentsResults[canMakePaymentsResults.length - 1]);
-                    console.log('  - querySelector foi chamado', querySelectorCalls.length, 'vezes');
-                    
-                    // Verificar novamente o estado atual
-                    const currentCanMakePayments = ApplePaySession.canMakePayments();
-                    console.log('  - canMakePayments atual (fora da biblioteca):', currentCanMakePayments);
-                    
-                    if (canMakePaymentsCallCount > 0) {
-                        const lastResult = canMakePaymentsResults[canMakePaymentsResults.length - 1];
-                        if (lastResult && !lastResult.result) {
-                            console.error('⚠️ PROBLEMA IDENTIFICADO: canMakePayments() retornou false quando chamado pela biblioteca Tuna');
-                            console.error('   Isso indica que a biblioteca está verificando e retornando false');
-                            console.error('   Possíveis causas:');
-                            console.error('   1. O merchantId não está configurado corretamente');
-                            console.error('   2. O dispositivo não tem cartões configurados para este merchant');
-                            console.error('   3. Há um problema de timing ou estado do Apple Pay');
-                        }
-                    } else {
-                        console.error('⚠️ PROBLEMA IDENTIFICADO: canMakePayments() NÃO foi chamado pela biblioteca');
-                        console.error('   Isso indica que a biblioteca falhou antes de verificar canMakePayments');
-                        console.error('   Possíveis causas:');
-                        console.error('   1. O elemento não foi encontrado (ERR:18)');
-                        console.error('   2. O applePayCallback não é uma função (ERR:30)');
-                        console.error('   3. Há um erro na configuração (ERR:44)');
-                    }
-                    
-                    showStatus('❌ Apple Pay não disponível (canMakePayments retornou false)', 'error');
-                }
+                showStatus('✅ Botão Apple Pay criado manualmente!', 'success');
 
             } catch (error) {
-                console.error('Erro:', error);
-                showStatus('❌ Erro: ' + error.message, 'error');
-                container.innerHTML = '<p style="color: red;">Erro: ' + error.message + '</p>';
+                console.error('Erro ao criar sessão manual:', error);
+                showStatus('❌ Erro ao criar sessão: ' + error.message, 'error');
             }
         }
     </script>
